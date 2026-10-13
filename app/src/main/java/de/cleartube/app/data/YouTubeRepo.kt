@@ -1,6 +1,7 @@
 package de.cleartube.app.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
@@ -51,16 +52,37 @@ object YouTubeRepo {
         views = viewCount
     )
 
+    /**
+     * Lädt die Videodaten. YouTube weist manche Abfragen zufällig ab ("The page needs to be
+     * reloaded"); ein erneuter Versuch klappt dann meist, daher wird bis zu 4-mal wiederholt.
+     */
     suspend fun details(url: String): VideoDetails = withContext(Dispatchers.IO) {
-        val info = StreamInfo.getInfo(yt, url)
-        VideoDetails(
-            url = url,
-            title = info.name ?: "video",
-            uploader = info.uploaderName ?: "",
-            thumbnail = info.thumbnails.firstOrNull()?.url,
-            options = buildOptions(info)
-        )
+        var last: Throwable? = null
+        for (attempt in 0 until 4) {
+            try {
+                val info = StreamInfo.getInfo(yt, url)
+                return@withContext VideoDetails(
+                    url = url,
+                    title = info.name ?: "video",
+                    uploader = info.uploaderName ?: "",
+                    thumbnail = info.thumbnails.firstOrNull()?.url,
+                    options = buildOptions(info)
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                last = e
+                if (!retryable(e) || attempt == 3) break
+                delay(700L * (attempt + 1))
+            }
+        }
+        throw last ?: IllegalStateException("Unbekannter Fehler")
     }
+
+    private fun retryable(e: Throwable): Boolean =
+        e is java.io.IOException ||
+            e is org.schabi.newpipe.extractor.exceptions.ParsingException ||
+            e.message.orEmpty().contains("reload", ignoreCase = true)
 
     // ---------------------------------------------------------------- Optionen
 

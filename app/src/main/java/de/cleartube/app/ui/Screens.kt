@@ -313,7 +313,8 @@ fun JobRow(j: DownloadJob) {
             Text(
                 when (j.state) {
                     JobState.QUEUED -> "Wartet…"
-                    JobState.RUNNING -> "Lädt… ${(j.progress * 100).toInt()} %"
+                    JobState.RUNNING ->
+                        "Lädt… ${(j.progress * 100).toInt()} %" + (j.message?.let { " · $it parallel" } ?: "")
                     JobState.MUXING -> "Wird zusammengefügt…"
                     JobState.DONE -> "Fertig"
                     JobState.FAILED -> "Fehler: ${j.message ?: "unbekannt"}"

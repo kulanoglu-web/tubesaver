@@ -73,10 +73,10 @@ class DownloadService : Service() {
                 val vFile = File(dir, "video.part")
                 val aFile = File(dir, "audio.part")
                 // Video 0–76 %, Audio 76–95 %, Zusammenfügen/Kopieren bis 100 %
-                DownloadEngine.downloadWithFallback(o.videoUrls, vFile) { d, t ->
+                DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
                     report(job, 0.76f * d / t)
                 }
-                DownloadEngine.downloadWithFallback(o.audioUrls, aFile) { d, t ->
+                DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
                     report(job, 0.76f + 0.19f * d / t)
                 }
                 DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
@@ -85,7 +85,7 @@ class DownloadService : Service() {
             } else {
                 val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
                 result = File(dir, "out." + o.ext)
-                DownloadEngine.downloadWithFallback(urls, result) { d, t ->
+                DownloadEngine.downloadWithFallback(urls, result, info(job)) { d, t ->
                     report(job, 0.95f * d / t)
                 }
             }
@@ -122,6 +122,11 @@ class DownloadService : Service() {
 
     private fun sanitize(s: String): String =
         s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimEnd('.').take(120).ifEmpty { "video" }
+
+    /** Zeigt in der Liste an, über wie viele YouTube-Server gerade parallel geladen wird. */
+    private fun info(job: DownloadJob): (String) -> Unit = { text ->
+        DownloadHub.update(job.id) { it.copy(message = text) }
+    }
 
     private fun report(job: DownloadJob, p: Float) {
         val progress = p.coerceIn(0f, 1f)
