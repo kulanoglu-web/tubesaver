@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Wird vom GitHub-Workflow mit der Laufnummer gesetzt, lokal Standardwert 1
+val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "de.cleartube.app"
     compileSdk = 35
@@ -12,8 +15,18 @@ android {
         applicationId = "de.cleartube.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNumber
+        versionName = "1.1.$buildNumber"
+    }
+
+    // Fester Schlüssel, damit jede neue APK als Update über die alte installiert werden kann
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

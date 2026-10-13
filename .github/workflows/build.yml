@@ -22,7 +22,8 @@ jobs:
           gradle-version: "8.9"
 
       - name: Debug-APK bauen
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        # Die Build-Nummer zählt bei jedem GitHub-Lauf automatisch hoch und wird zur App-Version
+        run: gradle :app:assembleDebug --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
 
       - uses: actions/upload-artifact@v4
         with:

@@ -58,7 +58,7 @@ object YouTubeRepo {
      */
     suspend fun details(url: String): VideoDetails = withContext(Dispatchers.IO) {
         var last: Throwable? = null
-        for (attempt in 0 until 4) {
+        for (attempt in 0 until 3) {
             try {
                 val info = StreamInfo.getInfo(yt, url)
                 return@withContext VideoDetails(
@@ -72,11 +72,32 @@ object YouTubeRepo {
                 throw e
             } catch (e: Throwable) {
                 last = e
-                if (!retryable(e) || attempt == 3) break
+                if (!retryable(e) || attempt == 2) break
                 delay(700L * (attempt + 1))
             }
         }
-        throw last ?: IllegalStateException("Unbekannter Fehler")
+        val primary = last ?: IllegalStateException("Unbekannter Fehler")
+        // Altersbeschränkt, privat, gesperrt usw.: ein zweiter Weg hilft hier nicht
+        if (!retryable(primary)) throw primary
+
+        // Zweiter Weg: mehrere YouTube-Zugänge (Android-VR, iOS) gleichzeitig abfragen
+        try {
+            val id = InnerTube.videoId(url) ?: throw IllegalArgumentException("Video-ID nicht erkennbar")
+            val r = InnerTube.fetch(id)
+            val opts = InnerTube.options(r.formats)
+            if (opts.isEmpty()) throw java.io.IOException("keine ladbaren Formate gefunden")
+            VideoDetails(
+                url = url,
+                title = r.title,
+                uploader = r.uploader,
+                thumbnail = r.thumbnail,
+                options = opts
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw IllegalStateException("${primary.message} | Zweiter Weg: ${e.message}", e)
+        }
     }
 
     private fun retryable(e: Throwable): Boolean =

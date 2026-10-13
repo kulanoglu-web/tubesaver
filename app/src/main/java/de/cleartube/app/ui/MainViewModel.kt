@@ -83,7 +83,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                error = "Video konnte nicht geladen werden: ${e.message}"
+                error = "Video konnte nicht geladen werden (${e.javaClass.simpleName}): ${e.message}"
             } finally {
                 detailsLoading = false
             }

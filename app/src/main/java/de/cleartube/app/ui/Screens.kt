@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
+import androidx.core.content.pm.PackageInfoCompat
 import coil.compose.AsyncImage
 import de.cleartube.app.data.DownloadJob
 import de.cleartube.app.data.JobState
@@ -135,6 +136,19 @@ fun SearchScreen(vm: MainViewModel) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { vm.submit() }),
             modifier = Modifier.fillMaxWidth().padding(12.dp)
+        )
+        val ctx = LocalContext.current
+        val versionText = remember {
+            runCatching {
+                val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+                "ClearTube Version ${pi.versionName} (Build ${PackageInfoCompat.getLongVersionCode(pi)})"
+            }.getOrDefault("")
+        }
+        Text(
+            versionText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp)
         )
         vm.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))

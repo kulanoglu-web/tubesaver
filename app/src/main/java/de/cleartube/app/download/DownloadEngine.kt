@@ -1,5 +1,6 @@
 package de.cleartube.app.download
 
+import de.cleartube.app.data.InnerTube
 import de.cleartube.app.net.Http
 import de.cleartube.app.net.USER_AGENT
 import kotlinx.coroutines.CancellationException
@@ -57,6 +58,13 @@ object DownloadEngine {
     private const val CHUNK = 4L * 1024 * 1024
     private const val MAX_ATTEMPTS = 6
 
+    /** Streams aus dem zweiten Abfrageweg erwarten die Kennung ihres Clients. */
+    private fun uaFor(url: String): String = when {
+        "c=ANDROID_VR" in url -> InnerTube.VR_UA
+        "c=IOS" in url -> InnerTube.IOS_UA
+        else -> USER_AGENT
+    }
+
     private val probeClient: OkHttpClient by lazy {
         Http.client.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
     }
@@ -100,7 +108,7 @@ object DownloadEngine {
     private fun probeLength(client: OkHttpClient, url: String): Long {
         val req = Request.Builder().url(url)
             .header("Range", "bytes=0-0")
-            .header("User-Agent", USER_AGENT)
+            .header("User-Agent", uaFor(url))
             .build()
         client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
@@ -169,7 +177,7 @@ object DownloadEngine {
             try {
                 val req = Request.Builder().url(server)
                     .header("Range", "bytes=$start-$end")
-                    .header("User-Agent", USER_AGENT)
+                    .header("User-Agent", uaFor(server))
                     .build()
                 Http.client.newCall(req).execute().use { r ->
                     if (r.code != 206 && r.code != 200) throw IOException("HTTP ${r.code}")
