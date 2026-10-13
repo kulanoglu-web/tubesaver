@@ -1,0 +1,155 @@
+package de.cleartube.app.data
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.schabi.newpipe.extractor.Page
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
+import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
+import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.DeliveryMethod
+import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.VideoStream
+
+class SearchSession(val handler: SearchQueryHandler, var next: Page?)
+
+object YouTubeRepo {
+    private val yt get() = ServiceList.YouTube
+
+    fun isYoutubeUrl(s: String): Boolean {
+        val t = s.trim()
+        return Regex("""(https?://)?(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+""").matches(t)
+    }
+
+    fun extractUrl(text: String): String? =
+        Regex("""https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+""").find(text)?.value
+
+    suspend fun search(query: String): Pair<List<VideoItem>, SearchSession> = withContext(Dispatchers.IO) {
+        val handler = yt.searchQHFactory.fromQuery(
+            query, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), ""
+        )
+        val info = SearchInfo.getInfo(yt, handler)
+        val items = info.relatedItems.filterIsInstance<StreamInfoItem>().map { it.toVideoItem() }
+        items to SearchSession(handler, info.nextPage)
+    }
+
+    suspend fun more(session: SearchSession): List<VideoItem> = withContext(Dispatchers.IO) {
+        val page = session.next ?: return@withContext emptyList()
+        val res = SearchInfo.getMoreItems(yt, session.handler, page)
+        session.next = res.nextPage
+        res.items.filterIsInstance<StreamInfoItem>().map { it.toVideoItem() }
+    }
+
+    private fun StreamInfoItem.toVideoItem() = VideoItem(
+        url = url,
+        title = name ?: "",
+        uploader = uploaderName ?: "",
+        thumbnail = thumbnails.firstOrNull()?.url,
+        durationSec = duration,
+        views = viewCount
+    )
+
+    suspend fun details(url: String): VideoDetails = withContext(Dispatchers.IO) {
+        val info = StreamInfo.getInfo(yt, url)
+        VideoDetails(
+            url = url,
+            title = info.name ?: "video",
+            uploader = info.uploaderName ?: "",
+            thumbnail = info.thumbnails.firstOrNull()?.url,
+            options = buildOptions(info)
+        )
+    }
+
+    // ---------------------------------------------------------------- Optionen
+
+    private fun sizeOf(s: VideoStream): Long = s.itagItem?.contentLength?.takeIf { it > 0 } ?: 0L
+    private fun sizeOf(s: AudioStream): Long = s.itagItem?.contentLength?.takeIf { it > 0 } ?: 0L
+
+    private fun mb(bytes: Long) = if (bytes > 0) " · ~%.1f MB".format(bytes / 1048576.0) else ""
+
+    private fun buildOptions(info: StreamInfo): List<Option> {
+        val audios = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+        val videoOnly = info.videoOnlyStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+        val muxed = info.videoStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+
+        fun audioCandidates(suffix: String) =
+            audios.filter { it.format?.suffix == suffix }.sortedByDescending { it.averageBitrate }
+
+        val m4a = audioCandidates("m4a")
+        val webmA = audioCandidates("webm")
+
+        val videoOpts = mutableListOf<Option>()
+        val coveredHeights = mutableSetOf<Int>()
+
+        // Video-only (hohe Qualität) + Audio, wird später zusammengefügt
+        for ((height, group) in videoOnly.groupBy { it.height }.toSortedMap(compareByDescending { it })) {
+            val mp4 = group.filter { it.format?.suffix == "mp4" && it.codec?.startsWith("avc1") == true }
+                .sortedByDescending { it.bitrate }
+            val webm = group.filter { it.format?.suffix == "webm" && it.codec?.startsWith("vp") == true }
+                .sortedByDescending { it.bitrate }
+
+            val useWebm = mp4.isEmpty()
+            val vids = if (useWebm) webm else mp4
+            val auds = if (useWebm) webmA else m4a
+            if (vids.isEmpty() || auds.isEmpty()) continue
+
+            val fps = vids.first().fps
+            val label = "${height}p" + (if (fps > 30) "$fps" else "") +
+                " · " + (if (useWebm) "WEBM" else "MP4") +
+                mb(sizeOf(vids.first()) + sizeOf(auds.first()))
+            videoOpts += Option(
+                kind = Kind.VIDEO,
+                label = label,
+                ext = if (useWebm) "webm" else "mp4",
+                webm = useWebm,
+                videoUrls = vids.map { it.content },
+                audioUrls = auds.map { it.content },
+                sizeBytes = sizeOf(vids.first()) + sizeOf(auds.first())
+            )
+            coveredHeights += height
+        }
+
+        // Fertige Streams mit Ton (meist 360p/720p) für Höhen, die oben fehlen
+        for (s in muxed.sortedByDescending { it.height }) {
+            if (s.height in coveredHeights) continue
+            val ext = s.format?.suffix ?: "mp4"
+            videoOpts += Option(
+                kind = Kind.VIDEO,
+                label = "${s.height}p · ${ext.uppercase()} (mit Ton)" + mb(sizeOf(s)),
+                ext = ext,
+                webm = ext == "webm",
+                videoUrls = listOf(s.content),
+                audioUrls = emptyList(),
+                sizeBytes = sizeOf(s)
+            )
+            coveredHeights += s.height
+        }
+        videoOpts.sortByDescending { o -> Regex("""^(\d+)p""").find(o.label)?.groupValues?.get(1)?.toInt() ?: 0 }
+
+        // Nur Audio: pro Format die besten Bitraten
+        val audioOpts = mutableListOf<Option>()
+        for ((suffix, list) in listOf("m4a" to m4a, "webm" to webmA)) {
+            val seen = mutableSetOf<Int>()
+            for (a in list) {
+                if (!seen.add(a.averageBitrate)) continue
+                if (seen.size > 3) break
+                val name = if (suffix == "m4a") "M4A (AAC)" else "WEBM (Opus)"
+                audioOpts += Option(
+                    kind = Kind.AUDIO,
+                    label = "$name · ${a.averageBitrate} kbps" + mb(sizeOf(a)),
+                    ext = suffix,
+                    webm = suffix == "webm",
+                    videoUrls = emptyList(),
+                    // Alternativen mit gleichem Format als Fallback
+                    audioUrls = listOf(a.content) + list.filter { it !== a }.map { it.content },
+                    sizeBytes = sizeOf(a)
+                )
+            }
+        }
+        audioOpts.sortByDescending { o -> Regex("""(\d+) kbps""").find(o.label)?.groupValues?.get(1)?.toInt() ?: 0 }
+
+        return videoOpts + audioOpts
+    }
+}
