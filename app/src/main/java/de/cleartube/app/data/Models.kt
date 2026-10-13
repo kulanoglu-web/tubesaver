@@ -25,7 +25,10 @@ data class Option(
     val webm: Boolean,
     val videoUrls: List<String>,
     val audioUrls: List<String>,
-    val sizeBytes: Long
+    val sizeBytes: Long,
+    /** YouTube-Formatnummern: gleiche Nummer von anderem Zugang = gleiche Datei auf anderem Server */
+    val videoItag: Int = 0,
+    val audioItag: Int = 0
 )
 
 data class VideoDetails(
@@ -46,5 +49,8 @@ data class DownloadJob(
     val tree: Uri,
     val state: JobState = JobState.QUEUED,
     val progress: Float = 0f,
-    val message: String? = null
+    val message: String? = null,
+    /** Fertige Datei im gewählten Ordner, zum Öffnen per Antippen */
+    val resultUri: Uri? = null,
+    val openMime: String? = null
 )

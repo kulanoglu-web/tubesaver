@@ -149,6 +149,21 @@ object InnerTube {
         return out
     }
 
+    /**
+     * Hängt an jede Variante die gleichen Streams (gleiche Formatnummer) der YouTube-Zugänge an.
+     * Die Quelle des Hauptzugangs bleibt vorn; die anderen sind zusätzliche Server derselben Datei.
+     */
+    fun mergeSources(options: List<Option>, extra: List<Fmt>): List<Option> {
+        fun urlsFor(itag: Int): List<String> =
+            if (itag == 0) emptyList() else extra.filter { it.itag == itag }.map { it.url }
+        return options.map { o ->
+            o.copy(
+                videoUrls = (o.videoUrls.take(1) + urlsFor(o.videoItag) + o.videoUrls.drop(1)).distinct(),
+                audioUrls = (o.audioUrls.take(1) + urlsFor(o.audioItag) + o.audioUrls.drop(1)).distinct()
+            )
+        }
+    }
+
     private fun mb(bytes: Long) = if (bytes > 0) " · ~%.1f MB".format(bytes / 1048576.0) else ""
 
     /** Baut aus den zusammengeführten Formaten die wählbaren Download-Varianten. */
@@ -181,7 +196,9 @@ object InnerTube {
                 webm = useWebm,
                 videoUrls = vids.map { it.url },
                 audioUrls = auds.map { it.url },
-                sizeBytes = size
+                sizeBytes = size,
+                videoItag = vids.first().itag,
+                audioItag = auds.first().itag
             )
             covered += height
         }
@@ -198,7 +215,8 @@ object InnerTube {
                 webm = false,
                 videoUrls = list.map { it.url },
                 audioUrls = emptyList(),
-                sizeBytes = list.first().size
+                sizeBytes = list.first().size,
+                videoItag = list.first().itag
             )
         }
 
@@ -219,7 +237,8 @@ object InnerTube {
                     webm = ext == "webm",
                     videoUrls = emptyList(),
                     audioUrls = listOf(a.url) + list.filter { it !== a }.map { it.url },
-                    sizeBytes = a.size
+                    sizeBytes = a.size,
+                    audioItag = a.itag
                 )
             }
         }

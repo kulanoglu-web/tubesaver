@@ -1,8 +1,11 @@
 package de.cleartube.app.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
@@ -56,7 +59,21 @@ object YouTubeRepo {
      * Lädt die Videodaten. YouTube weist manche Abfragen zufällig ab ("The page needs to be
      * reloaded"); ein erneuter Versuch klappt dann meist, daher wird bis zu 4-mal wiederholt.
      */
-    suspend fun details(url: String): VideoDetails = withContext(Dispatchers.IO) {
+    suspend fun details(url: String): VideoDetails = coroutineScope {
+        // Gleichzeitig: der zweite Zugang liefert dieselben Streams von anderen YouTube-Servern,
+        // die der Download später parallel mitnutzt.
+        val extra = async(Dispatchers.IO) {
+            runCatching {
+                val id = InnerTube.videoId(url) ?: return@runCatching null
+                withTimeout(9000) { InnerTube.fetch(id).formats }
+            }.getOrNull()
+        }
+        val base = primaryDetails(url)
+        val more = extra.await()
+        if (more.isNullOrEmpty()) base else base.copy(options = InnerTube.mergeSources(base.options, more))
+    }
+
+    private suspend fun primaryDetails(url: String): VideoDetails = withContext(Dispatchers.IO) {
         var last: Throwable? = null
         for (attempt in 0 until 3) {
             try {
@@ -149,7 +166,9 @@ object YouTubeRepo {
                 webm = useWebm,
                 videoUrls = vids.map { it.content },
                 audioUrls = auds.map { it.content },
-                sizeBytes = sizeOf(vids.first()) + sizeOf(auds.first())
+                sizeBytes = sizeOf(vids.first()) + sizeOf(auds.first()),
+                videoItag = vids.first().itagItem?.id ?: 0,
+                audioItag = auds.first().itagItem?.id ?: 0
             )
             coveredHeights += height
         }
@@ -165,7 +184,8 @@ object YouTubeRepo {
                 webm = ext == "webm",
                 videoUrls = listOf(s.content),
                 audioUrls = emptyList(),
-                sizeBytes = sizeOf(s)
+                sizeBytes = sizeOf(s),
+                videoItag = s.itagItem?.id ?: 0
             )
             coveredHeights += s.height
         }
@@ -187,7 +207,8 @@ object YouTubeRepo {
                     videoUrls = emptyList(),
                     // Alternativen mit gleichem Format als Fallback
                     audioUrls = listOf(a.content) + list.filter { it !== a }.map { it.content },
-                    sizeBytes = sizeOf(a)
+                    sizeBytes = sizeOf(a),
+                    audioItag = a.itagItem?.id ?: 0
                 )
             }
         }

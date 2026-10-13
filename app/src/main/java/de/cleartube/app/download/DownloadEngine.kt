@@ -24,27 +24,42 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
- * Leitet aus einer googlevideo-URL weitere Edge-Server desselben Videos ab.
- * YouTube nennt sie im Parameter "mn" (z. B. mn=sn-aaa,sn-bbb); der Hostname enthält
- * den ersten Eintrag (rr1---sn-aaa.googlevideo.com).
+ * Leitet aus einer googlevideo-URL weitere Server desselben Videos ab.
+ * Der Hostname hat die Form rr1---sn-aaa.googlevideo.com. Dieselbe Datei liegt auf mehreren
+ * Front-Servern (rr1 bis rr4) und auf weiteren Knoten, die YouTube im Parameter "mn" nennt.
+ * Ob ein Server wirklich antwortet, wird vor dem Download geprüft.
  */
 object Mirrors {
-    private val hostRe = Regex("""^(r{1,2}\d+---)?(sn-[a-z0-9]+)(\.googlevideo\.com)$""")
-    private val hostOfUrl = Regex("""^https?://([^/:]+)""")
-    private val mnParam = Regex("""[?&]mn=([^&]+)""")
+    private val hostRe = Regex("^(r{1,2})(\\d+)---(sn-[a-z0-9]+)(\\.googlevideo\\.com)$")
+    private val hostOfUrl = Regex("^https?://([^/:]+)")
+    private val mnParam = Regex("[?&]mn=([^&]+)")
 
+    fun hostOf(url: String): String = hostOfUrl.find(url)?.groupValues?.get(1) ?: url
+
+    /** Zusätzliche Server-Adressen (ohne die Original-URL). */
     fun expand(url: String): List<String> {
-        val host = hostOfUrl.find(url)?.groupValues?.get(1) ?: return listOf(url)
-        val m = hostRe.find(host) ?: return listOf(url)
-        val mn = mnParam.find(url)?.groupValues?.get(1)
+        val host = hostOfUrl.find(url)?.groupValues?.get(1) ?: return emptyList()
+        val m = hostRe.find(host) ?: return emptyList()
+        val letters = m.groupValues[1]
+        val node = m.groupValues[3]
+        val suffix = m.groupValues[4]
+
+        val otherNodes = mnParam.find(url)?.groupValues?.get(1)
             ?.let { URLDecoder.decode(it, "UTF-8") }
             ?.split(',')
-            ?.filter { it.startsWith("sn-") }
-            ?: return listOf(url)
-        val prefix = m.groupValues[1]
-        val suffix = m.groupValues[3]
-        val others = mn.filter { it != m.groupValues[2] }.distinct().take(3)
-        return listOf(url) + others.map { url.replaceFirst(host, "$prefix$it$suffix") }
+            ?.filter { it.startsWith("sn-") && it != node }
+            ?.distinct()
+            ?.take(2)
+            ?: emptyList()
+
+        val variants = LinkedHashSet<String>()
+        for (n in listOf(node) + otherNodes) {
+            for (rr in 1..4) {
+                val h = "$letters$rr---$n$suffix"
+                if (h != host) variants += h
+            }
+        }
+        return variants.take(6).map { url.replaceFirst(host, it) }
     }
 }
 
@@ -83,7 +98,10 @@ object DownloadEngine {
         }
     }
 
-    /** Probiert die Quellen nacheinander durch, bis eine komplett geladen wurde. */
+    /**
+     * Probiert die Quellen nacheinander durch, bis eine komplett geladen wurde. Die übrigen
+     * Adressen der Liste dienen dabei als zusätzliche Server, sofern sie dieselbe Datei liefern.
+     */
     suspend fun downloadWithFallback(
         urls: List<String>,
         dest: File,
@@ -91,9 +109,9 @@ object DownloadEngine {
         onProgress: (done: Long, total: Long) -> Unit
     ) {
         var last: Throwable? = null
-        for (url in urls) {
+        for ((i, url) in urls.withIndex()) {
             try {
-                download(url, dest, onInfo, onProgress)
+                download(url, urls.filterIndexed { j, _ -> j != i }, dest, onInfo, onProgress)
                 return
             } catch (e: CancellationException) {
                 throw e
@@ -120,6 +138,7 @@ object DownloadEngine {
 
     private suspend fun download(
         url: String,
+        otherUrls: List<String>,
         dest: File,
         onInfo: (String) -> Unit,
         onProgress: (Long, Long) -> Unit
@@ -127,15 +146,20 @@ object DownloadEngine {
         // Haupt-Server muss antworten, sonst geht es mit der nächsten Quelle weiter
         val total = withContext(Dispatchers.IO) { probeLength(Http.client, url) }
 
-        // Weitere Server desselben Videos parallel prüfen, nur gleich große Antworten zählen
-        val extra = Mirrors.expand(url).drop(1).map { m ->
+        // Alle weiteren Server parallel prüfen, nur gleich große Antworten zählen
+        val candidates = (otherUrls + Mirrors.expand(url) + otherUrls.flatMap { Mirrors.expand(it) })
+            .distinct()
+            .filter { it != url }
+            .take(12)
+        val extra = candidates.map { m ->
             async(Dispatchers.IO) {
                 runCatching { probeLength(probeClient, m) }.getOrNull()?.takeIf { it == total }?.let { m }
             }
         }.awaitAll().filterNotNull()
 
         val pool = Pool(listOf(url) + extra)
-        onInfo("${pool.urls.size} Server")
+        val servers = pool.urls.map { Mirrors.hostOf(it) }.distinct().size
+        onInfo(if (servers == 1) "1 Server" else "$servers Server")
 
         RandomAccessFile(dest, "rw").use { it.setLength(total) }
 
@@ -180,14 +204,16 @@ object DownloadEngine {
                     .header("User-Agent", uaFor(server))
                     .build()
                 Http.client.newCall(req).execute().use { r ->
-                    if (r.code != 206 && r.code != 200) throw IOException("HTTP ${r.code}")
+                    // Ein Server, der den Bereich ignoriert (200), ist nur für das erste Segment brauchbar
+                    if (r.code != 206 && !(r.code == 200 && start == 0L)) throw IOException("HTTP ${r.code}")
                     val body = r.body ?: throw IOException("Leere Antwort")
                     val buf = ByteArray(64 * 1024)
+                    val expected = end - start + 1
                     body.byteStream().use { input ->
                         raf.seek(start)
-                        while (true) {
+                        while (written < expected) {
                             currentCoroutineContext().ensureActive()
-                            val n = input.read(buf)
+                            val n = input.read(buf, 0, min(buf.size.toLong(), expected - written).toInt())
                             if (n < 0) break
                             raf.write(buf, 0, n)
                             written += n

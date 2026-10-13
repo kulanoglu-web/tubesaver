@@ -90,8 +90,16 @@ class DownloadService : Service() {
                 }
             }
 
-            copyToTree(job, result)
-            DownloadHub.update(job.id) { it.copy(state = JobState.DONE, progress = 1f, message = null) }
+            val outUri = copyToTree(job, result)
+            DownloadHub.update(job.id) {
+                it.copy(
+                    state = JobState.DONE,
+                    progress = 1f,
+                    message = null,
+                    resultUri = outUri,
+                    openMime = openMime(o)
+                )
+            }
         } catch (e: CancellationException) {
             DownloadHub.update(job.id) { it.copy(state = JobState.CANCELLED) }
             throw e
@@ -104,7 +112,15 @@ class DownloadService : Service() {
         }
     }
 
-    private fun copyToTree(job: DownloadJob, file: File) {
+    /** Dateityp, mit dem die fertige Datei in einem Player geöffnet wird. */
+    private fun openMime(o: de.cleartube.app.data.Option): String = when {
+        o.kind == Kind.AUDIO && o.ext == "webm" -> "audio/webm"
+        o.kind == Kind.AUDIO -> "audio/mp4"
+        o.ext == "webm" -> "video/webm"
+        else -> "video/mp4"
+    }
+
+    private fun copyToTree(job: DownloadJob, file: File): android.net.Uri {
         val root = DocumentFile.fromTreeUri(this, job.tree)
             ?: error("Speicherort nicht mehr verfügbar – bitte neu wählen")
         val ext = job.option.ext
@@ -118,6 +134,7 @@ class DownloadService : Service() {
         contentResolver.openOutputStream(doc.uri)?.use { out ->
             file.inputStream().use { it.copyTo(out, 256 * 1024) }
         } ?: error("Zieldatei nicht beschreibbar")
+        return doc.uri
     }
 
     private fun sanitize(s: String): String =

@@ -73,6 +73,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(item: VideoItem) = openUrl(item.url)
 
+    /** Zurück-Taste in der Ergebnisliste: zurück zur leeren Suche. */
+    fun clearResults() {
+        results = emptyList()
+        error = null
+        session = null
+    }
+
     fun openUrl(url: String) {
         detailsJob?.cancel()
         detailsLoading = true

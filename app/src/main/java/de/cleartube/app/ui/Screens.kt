@@ -1,6 +1,7 @@
 package de.cleartube.app.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -88,6 +89,12 @@ fun AppRoot(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val jobs by DownloadHub.jobs.collectAsState()
     val active = jobs.count { it.state == JobState.QUEUED || it.state == JobState.RUNNING || it.state == JobState.MUXING }
+
+    // Zurück: Downloads -> Suche, Ergebnisliste -> leere Suche, erst dann die App verlassen
+    BackHandler(enabled = tab == 1) { tab = 0 }
+    BackHandler(enabled = tab == 0 && vm.details == null && (vm.results.isNotEmpty() || vm.error != null)) {
+        vm.clearResults()
+    }
 
     Scaffold(
         bottomBar = {
@@ -313,10 +320,33 @@ fun DownloadsScreen(jobs: List<DownloadJob>) {
     }
 }
 
+/** Öffnet die fertige Datei im Player des Handys. */
+private fun openFile(ctx: android.content.Context, j: DownloadJob) {
+    val uri = j.resultUri ?: return
+    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+        .setDataAndType(uri, j.openMime ?: "video/*")
+        .addFlags(
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        )
+    try {
+        ctx.startActivity(intent)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(ctx, "Keine App zum Abspielen gefunden", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable
 fun JobRow(j: DownloadJob) {
+    val ctx = LocalContext.current
     val finished = j.state == JobState.DONE || j.state == JobState.FAILED || j.state == JobState.CANCELLED
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val canOpen = j.state == JobState.DONE && j.resultUri != null
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (canOpen) Modifier.clickable { openFile(ctx, j) } else Modifier)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Column(Modifier.weight(1f)) {
             Text(j.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(j.option.label, style = MaterialTheme.typography.bodySmall)
@@ -330,7 +360,7 @@ fun JobRow(j: DownloadJob) {
                     JobState.RUNNING ->
                         "Lädt… ${(j.progress * 100).toInt()} %" + (j.message?.let { " · $it parallel" } ?: "")
                     JobState.MUXING -> "Wird zusammengefügt…"
-                    JobState.DONE -> "Fertig"
+                    JobState.DONE -> if (canOpen) "Fertig – zum Abspielen antippen" else "Fertig"
                     JobState.FAILED -> "Fehler: ${j.message ?: "unbekannt"}"
                     JobState.CANCELLED -> "Abgebrochen"
                 },
