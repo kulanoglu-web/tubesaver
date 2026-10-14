@@ -45,6 +45,10 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
 
     var detail by mutableStateOf<SeriesHit?>(null)
     var episodes by mutableStateOf<List<Episode>>(emptyList())
+    /** false: nur ganze Folgen (Standard), true: alles inkl. Vorschauen und Ausschnitte */
+    var showAll by mutableStateOf(false)
+    val visible get() = if (showAll) episodes else episodes.filter { it.isFull() }
+    val hiddenCount get() = episodes.size - episodes.count { it.isFull() }
     private var nextPage: Page? = null
     val hasMore get() = nextPage != null
 
@@ -109,14 +113,22 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
         detailFrom = from
         episodes = emptyList()
         nextPage = null
+        showAll = false
         view = SView.DETAIL
         loading = true
         error = null
         viewModelScope.launch {
             try {
-                val p = SeriesRepo.episodes(hit.url)
+                var p = SeriesRepo.episodes(hit.url)
                 episodes = p.items
                 nextPage = p.next
+                // Es sollen genug ganze Folgen sichtbar sein: bis zu 4 weitere Seiten nachladen
+                var guard = 0
+                while (nextPage != null && episodes.count { it.isFull() } < 8 && guard++ < 4) {
+                    p = SeriesRepo.moreEpisodes(hit.url, nextPage!!)
+                    episodes = episodes + p.items
+                    nextPage = p.next
+                }
             } catch (e: Throwable) {
                 fail(e)
             } finally {

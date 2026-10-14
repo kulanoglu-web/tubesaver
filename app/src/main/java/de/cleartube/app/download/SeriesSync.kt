@@ -42,7 +42,10 @@ object SeriesSync {
                 // Erfolgreich eingereihte Folgen (und überzählige) gelten als bekannt; gescheiterte werden wiederholt
                 val handled = mutableListOf<String>()
                 if (tree != null) {
-                    for (ep in fresh.take(MAX_PER_SERIES)) {
+                    // Vorschauen und Ausschnitte (kürzer als die Mindestlänge) werden nicht automatisch geladen
+                    val full = fresh.filter { it.isFull() }
+                    handled += fresh.filterNot { it.isFull() }.map { it.url }
+                    for (ep in full.take(MAX_PER_SERIES)) {
                         val ok = runCatching {
                             val d = YouTubeRepo.details(ep.url)
                             val opt = SeriesRepo.pickOption(d.options, Store.seriesHeight) ?: error("keine Variante")
@@ -54,7 +57,7 @@ object SeriesSync {
                             handled += ep.url
                         }
                     }
-                    handled += fresh.drop(MAX_PER_SERIES).map { it.url }
+                    handled += full.drop(MAX_PER_SERIES).map { it.url }
                 }
                 updates[s.id] = (s.known + handled) to System.currentTimeMillis()
             } catch (_: Throwable) {

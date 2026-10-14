@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Nur ganze Folgen (ab 60 Min., einstellbar) werden automatisch geladen; Vorschauen sind ausgeblendet, aber abrufbar",
         "Version 1.4: Serien – Sender suchen, nur offizielle (verifizierte) Kanäle, Serie hinzufügen, " +
             "neue Folgen werden automatisch geladen und nach 3 Wochen gelöscht (einstellbar)",
         "Eingebauter Player mit VLC und ExoPlayer, merkt sich die Position und markiert gesehene Folgen",

@@ -81,7 +81,10 @@ data class Episode(
     val thumbnail: String?,
     val durationSec: Long,
     val uploadedText: String?
-)
+) {
+    /** Ganze Folge: mindestens die eingestellte Länge; unbekannte Dauer (Livestream) zählt nicht. */
+    fun isFull(): Boolean = durationSec >= Store.seriesMinMinutes * 60L
+}
 
 /** Kanal aus der Suche; nur verifizierte gelten als offiziell. */
 data class ChannelHit(val url: String, val name: String, val thumbnail: String?, val verified: Boolean)

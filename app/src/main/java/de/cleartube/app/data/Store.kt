@@ -54,6 +54,11 @@ object Store {
         get() = prefs.getInt("s_h", 720)
         set(v) = prefs.edit().putInt("s_h", v).apply()
 
+    /** Mindestlänge in Minuten, ab der ein Video als ganze Folge gilt (kürzere sind Vorschauen/Ausschnitte) */
+    var seriesMinMinutes: Int
+        get() = prefs.getInt("s_min", 60)
+        set(v) = prefs.edit().putInt("s_min", v).apply()
+
     var seriesAutoDownload: Boolean
         get() = prefs.getBoolean("s_auto", true)
         set(v) = prefs.edit().putBoolean("s_auto", v).apply()

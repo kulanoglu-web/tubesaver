@@ -346,6 +346,22 @@ private fun DetailView(vm: SeriesViewModel) {
                 }
             }
         }
+        if (!vm.loading) {
+            Row(
+                Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = !vm.showAll, onClick = { vm.showAll = false },
+                    label = { Text("Ganze Folgen (ab ${Store.seriesMinMinutes} Min.)") }
+                )
+                FilterChip(
+                    selected = vm.showAll, onClick = { vm.showAll = true },
+                    label = { Text("Alle" + if (vm.hiddenCount > 0) " (+${vm.hiddenCount} Vorschau)" else "") }
+                )
+            }
+        }
         if (vm.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
@@ -355,7 +371,15 @@ private fun DetailView(vm: SeriesViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 vm.error?.let { e -> item { Text("Fehler: $e", color = MaterialTheme.colorScheme.error) } }
-                items(vm.episodes, key = { it.url }) { ep ->
+                if (vm.visible.isEmpty() && vm.error == null) {
+                    item {
+                        Text(
+                            "Keine ganze Folge gefunden – nur Vorschauen oder Ausschnitte. Tippe auf „Alle“, um sie zu sehen.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                items(vm.visible, key = { it.url }) { ep ->
                     val job = jobs.lastOrNull { it.videoUrl == ep.url && it.state != JobState.FAILED && it.state != JobState.CANCELLED }
                     EpisodeRow(
                         ep, job, ep.url in vm.busy,
@@ -390,6 +414,9 @@ private fun EpisodeRow(
             val sub = listOfNotNull(formatDuration(ep.durationSec), ep.uploadedText).joinToString(" · ")
             if (sub.isNotEmpty()) {
                 Text(sub, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!ep.isFull()) {
+                Text("Vorschau / Ausschnitt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             }
             val status = when {
                 done -> if (Store.watched(job!!.id)) "Geladen · gesehen" else "Geladen · antippen zum Abspielen"

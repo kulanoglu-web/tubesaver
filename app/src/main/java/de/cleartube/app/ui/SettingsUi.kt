@@ -153,6 +153,18 @@ fun SettingsScreen(vm: MainViewModel, onInfo: () -> Unit, onCheckCleanup: () -> 
                 }
                 Switch(checked = auto, onCheckedChange = { auto = it; Store.seriesAutoDownload = it })
             }
+            var minMin by remember { mutableStateOf(Store.seriesMinMinutes) }
+            Text("Ganze Folge ab $minMin Minuten", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Kürzere Videos (Vorschau, Ausschnitte) werden nicht automatisch geladen und standardmäßig ausgeblendet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Slider(
+                value = minMin.toFloat(),
+                onValueChange = { minMin = ((it / 5f).roundToInt() * 5).coerceIn(10, 120); Store.seriesMinMinutes = minMin },
+                valueRange = 10f..120f
+            )
             Text("Qualität für automatische Downloads", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(480, 720, 1080).forEach { h ->
