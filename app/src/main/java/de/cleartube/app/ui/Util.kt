@@ -54,8 +54,10 @@ fun prettyPath(uri: Uri?): String {
 /** Läuft die App auf einem Fernseher (Android TV)? */
 fun isTelevision(ctx: Context): Boolean {
     val ui = ctx.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager
+    val pm = ctx.packageManager
     return ui?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
-        ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+        !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
 }
 
 /** Eigener Ordner der App; braucht keine Berechtigung und funktioniert auch ohne Ordner-Auswahl. */
@@ -76,13 +78,48 @@ fun rememberVersionText(): String {
     }
 }
 
-/** App-Ordner auf allen Speichern (intern, USB-Stick, SD-Karte); brauchen keine Berechtigung. */
+/** Speicher laut System (zur Fehlersuche, wenn eine externe Festplatte nicht auftaucht). */
+fun storageInfo(ctx: Context): String = runCatching {
+    val sm = ctx.getSystemService(android.os.storage.StorageManager::class.java)
+    sm.storageVolumes.joinToString("\n") { v ->
+        "${v.getDescription(ctx)}: ${v.state}" + if (v.isPrimary) " (intern)" else if (v.isRemovable) " (wechselbar)" else ""
+    }
+}.getOrDefault("")
+
+/**
+ * Ziele ohne Ordner-Auswahl: der App-Ordner auf dem internen Speicher und auf jedem eingehängten
+ * externen Speicher (USB-Festplatte, USB-Stick, SD-Karte). Brauchen keine Berechtigung.
+ */
 fun appFolders(ctx: Context): List<Pair<String, Uri>> {
-    val dirs = ctx.getExternalFilesDirs(android.os.Environment.DIRECTORY_MOVIES).filterNotNull()
-    if (dirs.isEmpty()) return listOf("Interner Speicher" to Uri.fromFile(ctx.filesDir))
-    return dirs.mapIndexed { i, d ->
+    val found = LinkedHashMap<String, java.io.File>()
+    ctx.getExternalFilesDirs(android.os.Environment.DIRECTORY_MOVIES).filterNotNull().forEach {
+        found[it.absolutePath] = it
+    }
+    // Zusätzlich alle eingehängten Speicher abfragen; nicht jedes Gerät meldet USB-Festplatten über den ersten Weg
+    runCatching {
+        val sm = ctx.getSystemService(android.os.storage.StorageManager::class.java)
+        sm.storageVolumes.forEach { v ->
+            if (v.state != android.os.Environment.MEDIA_MOUNTED || v.isPrimary) return@forEach
+            val root: java.io.File? = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                v.directory
+            } else {
+                runCatching { (v.javaClass.getMethod("getPath").invoke(v) as String).let { java.io.File(it) } }.getOrNull()
+            }
+            if (root != null) {
+                val d = java.io.File(root, "Android/data/${ctx.packageName}/files/Movies")
+                found.putIfAbsent(d.absolutePath, d)
+            }
+        }
+    }
+    val internalRoot = android.os.Environment.getExternalStorageDirectory().absolutePath
+    val dirs = found.values.filter { d ->
         runCatching { d.mkdirs() }
-        val name = if (i == 0) "Interner Speicher" else "USB-Stick / SD-Karte" + if (dirs.size > 2) " $i" else ""
+        d.isDirectory && d.canWrite()
+    }
+    if (dirs.isEmpty()) return listOf("Interner Speicher" to Uri.fromFile(ctx.filesDir))
+    return dirs.map { d ->
+        val internal = d.absolutePath.startsWith(internalRoot)
+        val name = if (internal) "Interner Speicher" else "Externer Speicher (" + d.absolutePath.split('/').getOrElse(2) { "USB" } + ")"
         "$name · ${formatSize(d.freeSpace)} frei" to Uri.fromFile(d)
     }
 }
@@ -117,6 +154,16 @@ fun rememberFolderPicker(vm: MainViewModel): () -> Unit {
                         "Dieses Gerät hat keine Ordner-Auswahl. Die Downloads werden im App-Ordner des gewählten Speichers abgelegt.",
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall
                     )
+                    if (options.size < 2) {
+                        Text(
+                            "Keine externe Festplatte gefunden. Laut System sind diese Speicher vorhanden:\n" +
+                                storageInfo(ctx).ifEmpty { "(keine Angabe)" } +
+                                "\nTipp: Die Festplatte muss eingehängt sein; manche Fernseher binden sie nur nach " +
+                                "Formatieren als Gerätespeicher ein.",
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.error
+                        )
+                    }
                     options.forEach { (label, uri) ->
                         androidx.compose.material3.TextButton(
                             onClick = { vm.setTree(uri); showList = false },
@@ -139,7 +186,8 @@ fun rememberFolderPicker(vm: MainViewModel): () -> Unit {
         )
     }
     return {
-        if (isTelevision(ctx)) {
+        val hasPicker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).resolveActivity(ctx.packageManager) != null
+        if (isTelevision(ctx) || !hasPicker) {
             showList = true
         } else {
             try {
