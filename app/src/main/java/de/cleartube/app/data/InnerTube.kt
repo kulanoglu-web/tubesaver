@@ -149,6 +149,15 @@ object InnerTube {
         return out
     }
 
+    /** Zugänge ohne Zusatz-Token zuerst (Android-VR, iOS), der Web-Zugang zuletzt. */
+    private fun prefer(urls: List<String>): List<String> = urls.distinct().sortedBy {
+        when {
+            "c=ANDROID_VR" in it -> 0
+            "c=IOS" in it -> 1
+            else -> 2
+        }
+    }
+
     /**
      * Hängt an jede Variante die gleichen Streams (gleiche Formatnummer) der YouTube-Zugänge an.
      * Die Quelle des Hauptzugangs bleibt vorn; die anderen sind zusätzliche Server derselben Datei.
@@ -158,8 +167,8 @@ object InnerTube {
             if (itag == 0) emptyList() else extra.filter { it.itag == itag }.map { it.url }
         return options.map { o ->
             o.copy(
-                videoUrls = (o.videoUrls.take(1) + urlsFor(o.videoItag) + o.videoUrls.drop(1)).distinct(),
-                audioUrls = (o.audioUrls.take(1) + urlsFor(o.audioItag) + o.audioUrls.drop(1)).distinct()
+                videoUrls = prefer(o.videoUrls + urlsFor(o.videoItag)),
+                audioUrls = prefer(o.audioUrls + urlsFor(o.audioItag))
             )
         }
     }

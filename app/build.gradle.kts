@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "1.2.$buildNumber"
+        versionName = "1.3.$buildNumber"
     }
 
     // Fester Schlüssel, damit jede neue APK als Update über die alte installiert werden kann

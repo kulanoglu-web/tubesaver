@@ -106,6 +106,7 @@ object Store {
                     put("webm", j.option.webm)
                     put("osize", j.option.sizeBytes)
                     put("tree", j.tree.toString())
+                    put("vurl", j.videoUrl)
                     put("state", j.state.name)
                     put("progress", j.progress.toDouble())
                     put("msg", j.message ?: JSONObject.NULL)
@@ -139,6 +140,7 @@ object Store {
                     sizeBytes = o.optLong("osize")
                 ),
                 tree = Uri.parse(o.getString("tree")),
+                videoUrl = o.optString("vurl"),
                 state = if (interrupted) JobState.FAILED else saved,
                 progress = o.optDouble("progress", 0.0).toFloat(),
                 message = if (interrupted) "Unterbrochen – bitte erneut starten" else o.str("msg"),

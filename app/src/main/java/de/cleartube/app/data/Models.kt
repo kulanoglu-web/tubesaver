@@ -47,6 +47,8 @@ data class DownloadJob(
     val thumbnail: String?,
     val option: Option,
     val tree: Uri,
+    /** YouTube-Adresse, damit abgelaufene oder fehlende Download-Adressen neu geholt werden können */
+    val videoUrl: String = "",
     val state: JobState = JobState.QUEUED,
     val progress: Float = 0f,
     val message: String? = null,

@@ -2,7 +2,11 @@
 
 package de.cleartube.app.ui
 
+import android.content.Intent
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import de.cleartube.app.download.DownloadService
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -180,6 +184,17 @@ fun JobCard(j: DownloadJob) {
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menü") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (j.state == JobState.FAILED || j.state == JobState.CANCELLED) {
+                            DropdownMenuItem(
+                                text = { Text("Erneut versuchen") },
+                                leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                                onClick = {
+                                    menu = false
+                                    DownloadHub.retry(j.id)
+                                    ContextCompat.startForegroundService(ctx, Intent(ctx, DownloadService::class.java))
+                                }
+                            )
+                        }
                         if (canOpen) {
                             DropdownMenuItem(
                                 text = { Text("Abspielen") },

@@ -161,7 +161,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun download(option: Option) {
         val d = details ?: return
         val tree = treeUri ?: return
-        DownloadHub.enqueue(d.title, d.thumbnail, option, tree)
+        DownloadHub.enqueue(d.title, d.thumbnail, option, tree, d.url)
         val ctx = getApplication<Application>()
         ContextCompat.startForegroundService(ctx, Intent(ctx, DownloadService::class.java))
         closeDetails()

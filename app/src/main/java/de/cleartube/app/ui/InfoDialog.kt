@@ -20,6 +20,8 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Version 1.3: Fehler 403 beim Download behoben – Android-VR-Quelle zuerst, neue Adressen bei Fehlern, " +
+            "Schonmodus, \"Erneut versuchen\" im Menü, genauere Fehlermeldung",
         "Neues Design mit hellem und dunklem Modus",
         "Downloadliste und letzte Suche bleiben nach dem Neustart erhalten",
         "Audio in bester Qualität (M4A) mit einem Tipp aus den Suchergebnissen",

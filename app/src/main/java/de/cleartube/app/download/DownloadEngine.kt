@@ -66,12 +66,19 @@ object Mirrors {
 /**
  * Lädt eine Datei in Segmenten (HTTP-Range) über mehrere parallele Verbindungen, verteilt auf
  * mehrere YouTube-Server. Fällt ein Server aus, übernehmen die übrigen; schlägt eine ganze
- * Quelle fehl, wird automatisch der nächste alternative Stream versucht.
+ * Quelle fehl, wird zuerst im Schonmodus (wenige Verbindungen, nur Originalserver) und dann mit
+ * dem nächsten alternativen Stream versucht.
  */
 object DownloadEngine {
     private const val CONNECTIONS = 8
+    private const val SAFE_CONNECTIONS = 2
     private const val CHUNK = 4L * 1024 * 1024
     private const val MAX_ATTEMPTS = 6
+
+    /** Wie der Bereich angefragt wird: per Range-Kopfzeile oder per Adress-Parameter "range=". */
+    private enum class Mode { HEADER, PARAM }
+
+    private class Probe(val total: Long, val mode: Mode)
 
     /** Streams aus dem zweiten Abfrageweg erwarten die Kennung ihres Clients. */
     private fun uaFor(url: String): String = when {
@@ -80,12 +87,28 @@ object DownloadEngine {
         else -> USER_AGENT
     }
 
+    private fun describe(url: String): String {
+        val client = Regex("[?&]c=([A-Z_]+)").find(url)?.groupValues?.get(1) ?: "WEB"
+        return "$client/${Mirrors.hostOf(url).substringBefore('.')}"
+    }
+
+    private fun clen(url: String): Long? =
+        Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+
+    private fun build(url: String, start: Long, end: Long, mode: Mode): Request {
+        val b = Request.Builder().header("User-Agent", uaFor(url))
+        return when (mode) {
+            Mode.HEADER -> b.url(url).header("Range", "bytes=$start-$end").build()
+            Mode.PARAM -> b.url(url + (if ('?' in url) "&" else "?") + "range=$start-$end").build()
+        }
+    }
+
     private val probeClient: OkHttpClient by lazy {
         Http.client.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
     }
 
     /** Verwaltet die Server einer Quelle; defekte Server werden übersprungen. */
-    private class Pool(val urls: List<String>) {
+    private class Pool(val urls: List<String>, val mode: Mode) {
         private val dead = ConcurrentHashMap.newKeySet<String>()
 
         fun order(pref: Int): List<String> {
@@ -108,32 +131,44 @@ object DownloadEngine {
         onInfo: (String) -> Unit = {},
         onProgress: (done: Long, total: Long) -> Unit
     ) {
-        var last: Throwable? = null
+        if (urls.isEmpty()) throw IOException("Keine Download-Adresse vorhanden")
+        val errors = LinkedHashSet<String>()
         for ((i, url) in urls.withIndex()) {
-            try {
-                download(url, urls.filterIndexed { j, _ -> j != i }, dest, onInfo, onProgress)
-                return
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                last = e
-                dest.delete()
+            val others = urls.filterIndexed { j, _ -> j != i }
+            for (safe in listOf(false, true)) {
+                try {
+                    download(url, others, dest, onInfo, onProgress, safe)
+                    return
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    errors += "${describe(url)}${if (safe) " (schonend)" else ""}: ${e.message ?: e.javaClass.simpleName}"
+                    dest.delete()
+                }
             }
         }
-        throw IOException("Alle Quellen fehlgeschlagen: ${last?.message}", last)
+        val text = errors.take(3).joinToString(" | ")
+        throw IOException("Alle ${urls.size} Quellen fehlgeschlagen – $text")
     }
 
-    private fun probeLength(client: OkHttpClient, url: String): Long {
-        val req = Request.Builder().url(url)
-            .header("Range", "bytes=0-0")
-            .header("User-Agent", uaFor(url))
-            .build()
-        client.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
-            r.header("Content-Range")?.substringAfter('/')?.toLongOrNull()?.let { return it }
-            return r.header("Content-Length")?.toLongOrNull()
-                ?: throw IOException("Dateigröße unbekannt")
+    private fun probe(client: OkHttpClient, url: String, modes: List<Mode> = Mode.values().toList()): Probe {
+        val errs = mutableListOf<String>()
+        for (mode in modes) {
+            try {
+                client.newCall(build(url, 0, 0, mode)).execute().use { r ->
+                    if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+                    val fromRange = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                    val fromFull = if (r.code == 200 && mode == Mode.HEADER) {
+                        r.header("Content-Length")?.toLongOrNull()
+                    } else null
+                    val total = fromRange ?: clen(url) ?: fromFull ?: throw IOException("Dateigröße unbekannt")
+                    return Probe(total, mode)
+                }
+            } catch (e: IOException) {
+                errs += "${e.message} (${mode.name.lowercase()})"
+            }
         }
+        throw IOException(errs.joinToString(", "))
     }
 
     private suspend fun download(
@@ -141,23 +176,26 @@ object DownloadEngine {
         otherUrls: List<String>,
         dest: File,
         onInfo: (String) -> Unit,
-        onProgress: (Long, Long) -> Unit
+        onProgress: (Long, Long) -> Unit,
+        safe: Boolean
     ) = coroutineScope {
         // Haupt-Server muss antworten, sonst geht es mit der nächsten Quelle weiter
-        val total = withContext(Dispatchers.IO) { probeLength(Http.client, url) }
+        val main = withContext(Dispatchers.IO) { probe(Http.client, url) }
+        val total = main.total
 
         // Alle weiteren Server parallel prüfen, nur gleich große Antworten zählen
-        val candidates = (otherUrls + Mirrors.expand(url) + otherUrls.flatMap { Mirrors.expand(it) })
-            .distinct()
-            .filter { it != url }
-            .take(12)
+        val candidates = if (safe) emptyList() else {
+            (otherUrls + Mirrors.expand(url) + otherUrls.flatMap { Mirrors.expand(it) })
+                .distinct().filter { it != url }.take(12)
+        }
         val extra = candidates.map { m ->
             async(Dispatchers.IO) {
-                runCatching { probeLength(probeClient, m) }.getOrNull()?.takeIf { it == total }?.let { m }
+                runCatching { probe(probeClient, m, listOf(main.mode)) }.getOrNull()
+                    ?.takeIf { it.total == total }?.let { m }
             }
         }.awaitAll().filterNotNull()
 
-        val pool = Pool(listOf(url) + extra)
+        val pool = Pool(listOf(url) + extra, main.mode)
         val servers = pool.urls.map { Mirrors.hostOf(it) }.distinct().size
         onInfo(if (servers == 1) "1 Server" else "$servers Server")
 
@@ -168,7 +206,8 @@ object DownloadEngine {
         val done = AtomicLong(0)
         onProgress(0, total)
 
-        (0 until min(CONNECTIONS, count)).map { worker ->
+        val connections = if (safe) SAFE_CONNECTIONS else CONNECTIONS
+        (0 until min(connections, count)).map { worker ->
             async(Dispatchers.IO) {
                 RandomAccessFile(dest, "rw").use { raf ->
                     while (true) {
@@ -199,13 +238,12 @@ object DownloadEngine {
             val server = order[attempt % order.size]
             var written = 0L
             try {
-                val req = Request.Builder().url(server)
-                    .header("Range", "bytes=$start-$end")
-                    .header("User-Agent", uaFor(server))
-                    .build()
+                val req = build(server, start, end, pool.mode)
                 Http.client.newCall(req).execute().use { r ->
                     // Ein Server, der den Bereich ignoriert (200), ist nur für das erste Segment brauchbar
-                    if (r.code != 206 && !(r.code == 200 && start == 0L)) throw IOException("HTTP ${r.code}")
+                    val ok = r.code == 206 ||
+                        (r.code == 200 && (start == 0L || pool.mode == Mode.PARAM))
+                    if (!ok) throw IOException("HTTP ${r.code}")
                     val body = r.body ?: throw IOException("Leere Antwort")
                     val buf = ByteArray(64 * 1024)
                     val expected = end - start + 1
@@ -229,7 +267,9 @@ object DownloadEngine {
             } catch (e: Throwable) {
                 done.addAndGet(-written)
                 pool.markDead(server)
-                if (++attempt >= MAX_ATTEMPTS) throw e
+                if (++attempt >= MAX_ATTEMPTS) {
+                    throw IOException("${describe(server)} ${e.message ?: e.javaClass.simpleName}", e)
+                }
             }
         }
     }

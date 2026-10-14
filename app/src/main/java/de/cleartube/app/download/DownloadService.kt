@@ -15,6 +15,7 @@ import de.cleartube.app.data.DownloadJob
 import de.cleartube.app.data.JobState
 import de.cleartube.app.data.Kind
 import de.cleartube.app.data.Option
+import de.cleartube.app.data.YouTubeRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,43 +65,27 @@ class DownloadService : Service() {
 
     private suspend fun process(job: DownloadJob) {
         val dir = File(cacheDir, "dl/${job.id}").apply { mkdirs() }
-        val o = job.option
         try {
-            DownloadHub.update(job.id) { it.copy(state = JobState.RUNNING, progress = 0f) }
+            DownloadHub.update(job.id) { it.copy(state = JobState.RUNNING, progress = 0f, message = null) }
+            var o = job.option
 
-            val hasMux = o.kind == Kind.VIDEO && o.audioUrls.isNotEmpty()
-            var result: File
+            // Gespeicherte Downloads haben keine Adressen mehr: frisch von YouTube holen
+            if (o.videoUrls.isEmpty() && o.audioUrls.isEmpty()) o = refreshed(job, o)
 
-            if (hasMux) {
-                val vFile = File(dir, "video.part")
-                val aFile = File(dir, "audio.part")
-                // Video 0–76 %, Audio 76–95 %, Zusammenfügen/Kopieren bis 100 %
-                DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
-                    report(job, 0.76f * d / t)
-                }
-                DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
-                    report(job, 0.76f + 0.19f * d / t)
-                }
-                DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
-                result = File(dir, "out." + o.ext)
-                Muxer.mux(vFile, aFile, result, o.webm)
-            } else {
-                val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
-                result = File(dir, "out." + o.ext)
-                DownloadEngine.downloadWithFallback(urls, result, info(job)) { d, t ->
-                    report(job, 0.95f * d / t)
-                }
-                // Reine Audiodatei: zu sauberer M4A umpacken, bei Problemen bleibt das Original
-                if (o.kind == Kind.AUDIO && o.ext == "m4a") {
-                    DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
-                    val clean = File(dir, "clean.m4a")
-                    val ok = runCatching { Muxer.remuxAudio(result, clean) }.isSuccess && clean.length() > 0
-                    if (ok) result = clean
-                }
+            val result = try {
+                fetchAndBuild(job, o, dir)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (first: Throwable) {
+                // Adressen können abgelaufen oder gesperrt sein: einmal neu holen und wiederholen
+                val fresh = runCatching { refreshed(job, o) }.getOrNull() ?: throw first
+                o = fresh
+                DownloadHub.update(job.id) { it.copy(progress = 0f, message = "Neue Adressen") }
+                fetchAndBuild(job, fresh, dir)
             }
 
             val size = result.length()
-            val outUri = copyToTree(job, result)
+            val outUri = copyToTree(job, result, o)
             DownloadHub.update(job.id) {
                 it.copy(
                     state = JobState.DONE,
@@ -124,6 +109,52 @@ class DownloadService : Service() {
         }
     }
 
+    /** Holt die Video-Daten neu und sucht die gleiche Variante wie beim ersten Mal. */
+    private suspend fun refreshed(job: DownloadJob, old: Option): Option {
+        if (job.videoUrl.isEmpty()) error("Video-Adresse unbekannt – bitte neu über die Suche starten")
+        val d = YouTubeRepo.details(job.videoUrl)
+        fun core(l: String) = l.replace(Regex(" · ~[\\d.,]+ MB"), "")
+        return d.options.firstOrNull { it.kind == old.kind && it.ext == old.ext && core(it.label) == core(old.label) }
+            ?: d.options.firstOrNull { it.kind == old.kind && it.ext == old.ext }
+            ?: error("Diese Variante gibt es nicht mehr – bitte neu über die Suche starten")
+    }
+
+    /** Lädt die gewählte Variante und liefert die fertige Datei (im Cache-Ordner). */
+    private suspend fun fetchAndBuild(job: DownloadJob, o: Option, dir: File): File {
+        dir.listFiles()?.forEach { it.delete() }
+        val hasMux = o.kind == Kind.VIDEO && o.audioUrls.isNotEmpty()
+        var result: File
+
+        if (hasMux) {
+            val vFile = File(dir, "video.part")
+            val aFile = File(dir, "audio.part")
+            // Video 0–76 %, Audio 76–95 %, Zusammenfügen/Kopieren bis 100 %
+            DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
+                report(job, 0.76f * d / t)
+            }
+            DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
+                report(job, 0.76f + 0.19f * d / t)
+            }
+            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
+            result = File(dir, "out." + o.ext)
+            Muxer.mux(vFile, aFile, result, o.webm)
+        } else {
+            val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
+            result = File(dir, "out." + o.ext)
+            DownloadEngine.downloadWithFallback(urls, result, info(job)) { d, t ->
+                report(job, 0.95f * d / t)
+            }
+            // Reine Audiodatei: zu sauberer M4A umpacken, bei Problemen bleibt das Original
+            if (o.kind == Kind.AUDIO && o.ext == "m4a") {
+                DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
+                val clean = File(dir, "clean.m4a")
+                val ok = runCatching { Muxer.remuxAudio(result, clean) }.isSuccess && clean.length() > 0
+                if (ok) result = clean
+            }
+        }
+        return result
+    }
+
     /** Dateityp, mit dem die fertige Datei in einem Player geöffnet wird. */
     private fun openMime(o: Option): String = when {
         o.kind == Kind.AUDIO && o.ext == "webm" -> "audio/webm"
@@ -132,10 +163,10 @@ class DownloadService : Service() {
         else -> "video/mp4"
     }
 
-    private fun copyToTree(job: DownloadJob, file: File): Uri {
+    private fun copyToTree(job: DownloadJob, file: File, o: Option): Uri {
         val root = DocumentFile.fromTreeUri(this, job.tree)
             ?: error("Speicherort nicht mehr verfügbar – bitte neu wählen")
-        val ext = job.option.ext
+        val ext = o.ext
         val name = sanitize(job.title) + "." + ext
         // Typ passend zur Endung wählen, sonst hängt Android eine zweite Endung an
         val mime = when (ext) {

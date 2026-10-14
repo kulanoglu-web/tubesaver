@@ -26,8 +26,8 @@ object DownloadHub {
         runCatching { Store.saveJobs(jobs.value) }
     }
 
-    fun enqueue(title: String, thumb: String?, option: Option, tree: Uri): DownloadJob {
-        val job = DownloadJob(ids.getAndIncrement(), title, thumb, option, tree)
+    fun enqueue(title: String, thumb: String?, option: Option, tree: Uri, videoUrl: String = ""): DownloadJob {
+        val job = DownloadJob(ids.getAndIncrement(), title, thumb, option, tree, videoUrl)
         jobs.update { it + job }
         persist()
         return job
@@ -55,6 +55,11 @@ object DownloadHub {
         val r = running[id]
         if (r != null) r.cancel()
         else update(id) { if (it.state == JobState.QUEUED) it.copy(state = JobState.CANCELLED) else it }
+    }
+
+    /** Fehlgeschlagenen Download erneut einreihen (Adressen werden dabei neu geholt). */
+    fun retry(id: Long) {
+        update(id) { it.copy(state = JobState.QUEUED, progress = 0f, message = null) }
     }
 
     fun remove(id: Long) {
