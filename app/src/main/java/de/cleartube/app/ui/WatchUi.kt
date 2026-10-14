@@ -204,9 +204,10 @@ private fun WatchCard(j: DownloadJob, tick: Int, onChanged: () -> Unit, onDelete
                             .background(MaterialTheme.colorScheme.primary).padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-                if (pos > 10_000 && !seen) {
+                val total = remember(tick, j.id) { Store.duration(j.id) }
+                if (pos > 10_000 && !seen && total > 0) {
                     LinearProgressIndicator(
-                        progress = { 0.5f },
+                        progress = { (pos.toFloat() / total).coerceIn(0f, 1f) },
                         modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     )
                 }

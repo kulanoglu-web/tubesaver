@@ -81,6 +81,7 @@ class VlcEngine(private val ctx: Context, private val ev: EngineEvents) : VideoE
     private val player = MediaPlayer(lib)
     private val layout = VLCVideoLayout(ctx)
     private var pfd: ParcelFileDescriptor? = null
+    private var pendingStart = 0L
     private var media: Media? = null
     override val view: View get() = layout
     override val position: Long get() = player.time.coerceAtLeast(0)
@@ -91,6 +92,14 @@ class VlcEngine(private val ctx: Context, private val ev: EngineEvents) : VideoE
         player.attachViews(layout, null, false, false)
         player.setEventListener { e ->
             when (e.type) {
+                MediaPlayer.Event.Playing -> {
+                    // Startposition erst setzen, wenn die Wiedergabe wirklich läuft (vorher wird sie ignoriert)
+                    if (pendingStart > 0) {
+                        val t = pendingStart
+                        pendingStart = 0
+                        player.time = t
+                    }
+                }
                 MediaPlayer.Event.EndReached -> ev.onEnded()
                 MediaPlayer.Event.EncounteredError -> ev.onError("VLC-Fehler")
                 else -> Unit
@@ -107,10 +116,13 @@ class VlcEngine(private val ctx: Context, private val ev: EngineEvents) : VideoE
             Media(lib, uri)
         }
         m.setHWDecoderEnabled(true, false)
+        if (startMs > 0) {
+            m.addOption(":start-time=" + "%.3f".format(java.util.Locale.US, startMs / 1000.0))
+            pendingStart = startMs
+        }
         media = m
         player.media = m
         player.play()
-        if (startMs > 0) player.time = startMs
     }
 
     override fun toggle() {

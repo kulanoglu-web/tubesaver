@@ -10,22 +10,33 @@ import java.nio.ByteBuffer
 /** Fügt getrennte Video- und Audiospuren ohne Neukodierung zusammen. */
 object Muxer {
 
-    fun mux(video: File, audio: File, out: File, webm: Boolean) {
+    /** Zusammenfügen in eine Datei. */
+    fun mux(video: File, audio: File, out: File, webm: Boolean, onProgress: (Float) -> Unit = {}) {
+        core(video, audio, MediaMuxer(out.absolutePath, format(webm)), onProgress)
+    }
+
+    /** Zusammenfügen direkt in einen offenen Dateideskriptor (z. B. Zielordner), spart das Umkopieren. */
+    fun mux(video: File, audio: File, fd: java.io.FileDescriptor, webm: Boolean, onProgress: (Float) -> Unit = {}) {
+        core(video, audio, MediaMuxer(fd, format(webm)), onProgress)
+    }
+
+    private fun format(webm: Boolean) =
+        if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+
+    private fun core(video: File, audio: File, muxer: MediaMuxer, onProgress: (Float) -> Unit) {
         val vEx = MediaExtractor().apply { setDataSource(video.absolutePath) }
         val aEx = MediaExtractor().apply { setDataSource(audio.absolutePath) }
-        val muxer = MediaMuxer(
-            out.absolutePath,
-            if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
-        )
         try {
             val vi = findTrack(vEx, "video/")
             val ai = findTrack(aEx, "audio/")
             vEx.selectTrack(vi)
             aEx.selectTrack(ai)
-            val vTrack = muxer.addTrack(vEx.getTrackFormat(vi))
+            val vFormat = vEx.getTrackFormat(vi)
+            val total = if (vFormat.containsKey(MediaFormat.KEY_DURATION)) vFormat.getLong(MediaFormat.KEY_DURATION) else 0L
+            val vTrack = muxer.addTrack(vFormat)
             val aTrack = muxer.addTrack(aEx.getTrackFormat(ai))
             muxer.start()
-            interleave(vEx, vTrack, aEx, aTrack, muxer)
+            interleave(vEx, vTrack, aEx, aTrack, muxer, total, onProgress)
             muxer.stop()
         } finally {
             runCatching { muxer.release() }
@@ -63,7 +74,11 @@ object Muxer {
     }
 
     /** Schreibt Bild und Ton abwechselnd nach Zeitstempel: schneller und speicherschonend. */
-    private fun interleave(vEx: MediaExtractor, vTrack: Int, aEx: MediaExtractor, aTrack: Int, muxer: MediaMuxer) {
+    private fun interleave(
+        vEx: MediaExtractor, vTrack: Int, aEx: MediaExtractor, aTrack: Int, muxer: MediaMuxer,
+        totalUs: Long, onProgress: (Float) -> Unit
+    ) {
+        var lastReport = 0L
         val buf = ByteBuffer.allocate(2 * 1024 * 1024)
         val info = MediaCodec.BufferInfo()
         while (true) {
@@ -82,6 +97,13 @@ object Muxer {
                 MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
             info.set(0, size, ex.sampleTime, flags)
             muxer.writeSampleData(if (useVideo) vTrack else aTrack, buf, info)
+            if (totalUs > 0 && useVideo) {
+                val now = System.currentTimeMillis()
+                if (now - lastReport > 700) {
+                    lastReport = now
+                    onProgress((info.presentationTimeUs.toFloat() / totalUs).coerceIn(0f, 1f))
+                }
+            }
             ex.advance()
         }
     }

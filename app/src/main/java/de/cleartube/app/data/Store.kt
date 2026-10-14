@@ -66,6 +66,8 @@ object Store {
     // Abspielposition und "gesehen" je Download
     fun position(jobId: Long): Long = prefs.getLong("pos_$jobId", 0L)
     fun setPosition(jobId: Long, ms: Long) = prefs.edit().putLong("pos_$jobId", ms).apply()
+    fun duration(jobId: Long): Long = prefs.getLong("dur_$jobId", 0L)
+    fun setDuration(jobId: Long, ms: Long) = prefs.edit().putLong("dur_$jobId", ms).apply()
     fun watched(jobId: Long): Boolean = prefs.getBoolean("seen_$jobId", false)
     fun setWatched(jobId: Long, v: Boolean) = prefs.edit().putBoolean("seen_$jobId", v).apply()
 

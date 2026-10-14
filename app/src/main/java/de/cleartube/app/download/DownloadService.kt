@@ -86,9 +86,8 @@ class DownloadService : Service() {
                 fetchAndBuild(job, fresh, dir)
             }
 
-            val size = result.length()
-            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.97f, message = "Wird im Zielordner gespeichert…") }
-            val outUri = copyToTree(job, result, o)
+            val size = result.size
+            val outUri = result.uri ?: copyToTree(job, result.file!!, o)
             DownloadHub.update(job.id) {
                 it.copy(
                     state = JobState.DONE,
@@ -122,8 +121,20 @@ class DownloadService : Service() {
             ?: error("Diese Variante gibt es nicht mehr – bitte neu über die Suche starten")
     }
 
-    /** Lädt die gewählte Variante und liefert die fertige Datei (im Cache-Ordner). */
-    private suspend fun fetchAndBuild(job: DownloadJob, o: Option, dir: File): File {
+    /** Ergebnis: entweder schon im Zielordner (uri) oder eine Datei im Cache, die noch kopiert wird. */
+    private class Built(val file: File?, val uri: Uri?, val size: Long)
+
+    private fun muxProgress(job: DownloadJob): (Float) -> Unit = { p ->
+        DownloadHub.update(job.id) {
+            it.copy(
+                state = JobState.MUXING, progress = 0.95f + 0.04f * p,
+                message = "Wird zusammengefügt… ${(p * 100).toInt()} %"
+            )
+        }
+    }
+
+    /** Lädt die gewählte Variante und liefert die fertige Datei. */
+    private suspend fun fetchAndBuild(job: DownloadJob, o: Option, dir: File): Built {
         dir.listFiles()?.forEach { it.delete() }
         val hasMux = o.kind == Kind.VIDEO && o.audioUrls.isNotEmpty()
         var result: File
@@ -138,9 +149,17 @@ class DownloadService : Service() {
             DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
                 report(job, 0.76f + 0.19f * d / t)
             }
-            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = null) }
+            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = "Wird zusammengefügt… 0 %") }
+            // Schnellster Weg: direkt in den Zielordner schreiben, ohne die fertige Datei noch einmal zu kopieren
+            muxDirect(job, o, vFile, aFile)?.let { uri ->
+                val size = runCatching {
+                    if (uri.scheme == "file") File(uri.path!!).length()
+                    else DocumentFile.fromSingleUri(this, uri)?.length() ?: 0L
+                }.getOrDefault(0L)
+                return Built(null, uri, size)
+            }
             result = File(dir, "out." + o.ext)
-            Muxer.mux(vFile, aFile, result, o.webm)
+            Muxer.mux(vFile, aFile, result, o.webm, muxProgress(job))
         } else {
             val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
             result = File(dir, "out." + o.ext)
@@ -155,7 +174,50 @@ class DownloadService : Service() {
                 if (ok) result = clean
             }
         }
-        return result
+        return Built(result, null, result.length())
+    }
+
+    private fun mimeFor(ext: String) = when (ext) {
+        "m4a" -> "audio/mp4"
+        "webm" -> "video/webm"
+        else -> "video/mp4"
+    }
+
+    /** Fügt Bild und Ton direkt am Zielort zusammen; bei jedem Problem null (dann Weg über den Cache). */
+    private fun muxDirect(job: DownloadJob, o: Option, v: File, a: File): Uri? {
+        val name = sanitize(job.title)
+        val prog = muxProgress(job)
+        try {
+            if (job.tree.scheme == "file") {
+                val dir = File(job.tree.path!!).apply { mkdirs() }
+                var target = File(dir, "$name.${o.ext}")
+                var n = 1
+                while (target.exists()) target = File(dir, "$name (${n++}).${o.ext}")
+                try {
+                    Muxer.mux(v, a, target, o.webm, prog)
+                    if (target.length() > 0) return Uri.fromFile(target)
+                } catch (t: Throwable) {
+                    // fällt unten auf den Cache-Weg zurück
+                }
+                target.delete()
+                return null
+            }
+            val root = DocumentFile.fromTreeUri(this, job.tree) ?: return null
+            val doc = root.createFile(mimeFor(o.ext), "$name.${o.ext}") ?: return null
+            var ok = false
+            try {
+                val pfd = contentResolver.openFileDescriptor(doc.uri, "rw") ?: return null
+                pfd.use { Muxer.mux(v, a, it.fileDescriptor, o.webm, prog) }
+                ok = doc.length() > 0
+            } catch (t: Throwable) {
+                ok = false
+            } finally {
+                if (!ok) runCatching { doc.delete() }
+            }
+            return if (ok) doc.uri else null
+        } catch (t: Throwable) {
+            return null
+        }
     }
 
     /** Dateityp, mit dem die fertige Datei in einem Player geöffnet wird. */
@@ -187,8 +249,30 @@ class DownloadService : Service() {
             else -> "video/mp4"
         }
         val doc = root.createFile(mime, name) ?: error("Datei im Zielordner nicht anlegbar")
+        val total = file.length().coerceAtLeast(1)
+        var copied = 0L
+        var last = 0L
         contentResolver.openOutputStream(doc.uri)?.use { out ->
-            file.inputStream().use { it.copyTo(out, 1024 * 1024) }
+            file.inputStream().use { input ->
+                val buf = ByteArray(1024 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    copied += n
+                    val now = System.currentTimeMillis()
+                    if (now - last > 700) {
+                        last = now
+                        val p = copied.toFloat() / total
+                        DownloadHub.update(job.id) {
+                            it.copy(
+                                state = JobState.MUXING, progress = 0.97f + 0.03f * p,
+                                message = "Wird gespeichert… ${(p * 100).toInt()} %"
+                            )
+                        }
+                    }
+                }
+            }
         } ?: error("Zieldatei nicht beschreibbar")
         return doc.uri
     }
