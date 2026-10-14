@@ -475,7 +475,9 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
         onDismissRequest = { vm.closeDetails() },
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 20.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
                     AsyncImage(
@@ -494,6 +496,22 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            Spacer(Modifier.padding(top = 10.dp))
+            Button(
+                onClick = { selected?.let { onDownload(it, keep) } },
+                enabled = selected != null && vm.treeUri != null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Download, null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when {
+                        selected == null -> "Qualität wählen"
+                        vm.treeUri == null -> "Speicherort wählen"
+                        else -> "Download starten"
+                    }
+                )
             }
             Spacer(Modifier.padding(top = 12.dp))
 
@@ -570,22 +588,6 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
                 }
             }
 
-            Spacer(Modifier.padding(top = 10.dp))
-            Button(
-                onClick = { selected?.let { onDownload(it, keep) } },
-                enabled = selected != null && vm.treeUri != null,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Download, null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        selected == null -> "Qualität wählen"
-                        vm.treeUri == null -> "Speicherort wählen"
-                        else -> "Download starten"
-                    }
-                )
-            }
         }
     }
 }
