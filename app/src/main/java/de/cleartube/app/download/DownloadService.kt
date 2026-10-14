@@ -85,6 +85,7 @@ class DownloadService : Service() {
             }
 
             val size = result.length()
+            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.97f, message = "Wird im Zielordner gespeichert…") }
             val outUri = copyToTree(job, result, o)
             DownloadHub.update(job.id) {
                 it.copy(
@@ -135,7 +136,7 @@ class DownloadService : Service() {
             DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
                 report(job, 0.76f + 0.19f * d / t)
             }
-            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
+            DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = null) }
             result = File(dir, "out." + o.ext)
             Muxer.mux(vFile, aFile, result, o.webm)
         } else {
@@ -146,7 +147,7 @@ class DownloadService : Service() {
             }
             // Reine Audiodatei: zu sauberer M4A umpacken, bei Problemen bleibt das Original
             if (o.kind == Kind.AUDIO && o.ext == "m4a") {
-                DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
+                DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = null) }
                 val clean = File(dir, "clean.m4a")
                 val ok = runCatching { Muxer.remuxAudio(result, clean) }.isSuccess && clean.length() > 0
                 if (ok) result = clean
@@ -176,7 +177,7 @@ class DownloadService : Service() {
         }
         val doc = root.createFile(mime, name) ?: error("Datei im Zielordner nicht anlegbar")
         contentResolver.openOutputStream(doc.uri)?.use { out ->
-            file.inputStream().use { it.copyTo(out, 256 * 1024) }
+            file.inputStream().use { it.copyTo(out, 1024 * 1024) }
         } ?: error("Zieldatei nicht beschreibbar")
         return doc.uri
     }

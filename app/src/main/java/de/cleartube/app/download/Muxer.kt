@@ -25,8 +25,7 @@ object Muxer {
             val vTrack = muxer.addTrack(vEx.getTrackFormat(vi))
             val aTrack = muxer.addTrack(aEx.getTrackFormat(ai))
             muxer.start()
-            copySamples(vEx, muxer, vTrack)
-            copySamples(aEx, muxer, aTrack)
+            interleave(vEx, vTrack, aEx, aTrack, muxer)
             muxer.stop()
         } finally {
             runCatching { muxer.release() }
@@ -61,6 +60,30 @@ object Muxer {
             if (mime.startsWith(prefix)) return i
         }
         error("Keine Spur '$prefix' gefunden")
+    }
+
+    /** Schreibt Bild und Ton abwechselnd nach Zeitstempel: schneller und speicherschonend. */
+    private fun interleave(vEx: MediaExtractor, vTrack: Int, aEx: MediaExtractor, aTrack: Int, muxer: MediaMuxer) {
+        val buf = ByteBuffer.allocate(2 * 1024 * 1024)
+        val info = MediaCodec.BufferInfo()
+        while (true) {
+            val vt = vEx.sampleTime
+            val at = aEx.sampleTime
+            if (vt < 0 && at < 0) break
+            val useVideo = at < 0 || (vt in 0..at)
+            val ex = if (useVideo) vEx else aEx
+            buf.clear()
+            val size = ex.readSampleData(buf, 0)
+            if (size < 0) {
+                ex.advance()
+                continue
+            }
+            val flags = if (ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)
+                MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+            info.set(0, size, ex.sampleTime, flags)
+            muxer.writeSampleData(if (useVideo) vTrack else aTrack, buf, info)
+            ex.advance()
+        }
     }
 
     private fun copySamples(ex: MediaExtractor, muxer: MediaMuxer, track: Int) {
