@@ -87,19 +87,19 @@ fun SettingsScreen(vm: MainViewModel, onInfo: () -> Unit, onCheckCleanup: () -> 
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(checked = vm.cleanupEnabled, onCheckedChange = { vm.setCleanupEnabled(it) })
+                Switch(checked = vm.cleanupEnabled, onCheckedChange = { vm.updateCleanupEnabled(it) })
             }
             if (vm.cleanupEnabled) {
                 Text("Nach ${vm.cleanupDays} Tagen", style = MaterialTheme.typography.labelLarge)
                 Slider(
                     value = vm.cleanupDays.toFloat(),
-                    onValueChange = { vm.setCleanupDays(it.roundToInt().coerceIn(1, 90)) },
+                    onValueChange = { vm.updateCleanupDays(it.roundToInt().coerceIn(1, 90)) },
                     valueRange = 1f..90f
                 )
                 Text("Dateien ab ${vm.cleanupMb} MB", style = MaterialTheme.typography.labelLarge)
                 Slider(
                     value = vm.cleanupMb.toFloat(),
-                    onValueChange = { vm.setCleanupMb(((it / 50f).roundToInt() * 50).coerceIn(50, 1000)) },
+                    onValueChange = { vm.updateCleanupMb(((it / 50f).roundToInt() * 50).coerceIn(50, 1000)) },
                     valueRange = 50f..1000f
                 )
             }

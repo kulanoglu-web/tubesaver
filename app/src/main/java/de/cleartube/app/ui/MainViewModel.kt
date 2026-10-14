@@ -143,17 +143,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         Store.tree = uri.toString()
     }
 
-    fun setCleanupEnabled(v: Boolean) {
+    fun updateCleanupEnabled(v: Boolean) {
         cleanupEnabled = v
         Store.cleanupEnabled = v
     }
 
-    fun setCleanupDays(v: Int) {
+    fun updateCleanupDays(v: Int) {
         cleanupDays = v
         Store.cleanupDays = v
     }
 
-    fun setCleanupMb(v: Int) {
+    fun updateCleanupMb(v: Int) {
         cleanupMb = v
         Store.cleanupMb = v
     }
