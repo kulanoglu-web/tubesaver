@@ -8,7 +8,12 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.pm.PackageInfoCompat
 import de.cleartube.app.data.DownloadJob
@@ -71,10 +76,25 @@ fun rememberVersionText(): String {
     }
 }
 
-/** Liefert eine Funktion, die den Ordner-Auswahldialog öffnet und die Wahl dauerhaft speichert. */
+/** App-Ordner auf allen Speichern (intern, USB-Stick, SD-Karte); brauchen keine Berechtigung. */
+fun appFolders(ctx: Context): List<Pair<String, Uri>> {
+    val dirs = ctx.getExternalFilesDirs(android.os.Environment.DIRECTORY_MOVIES).filterNotNull()
+    if (dirs.isEmpty()) return listOf("Interner Speicher" to Uri.fromFile(ctx.filesDir))
+    return dirs.mapIndexed { i, d ->
+        runCatching { d.mkdirs() }
+        val name = if (i == 0) "Interner Speicher" else "USB-Stick / SD-Karte" + if (dirs.size > 2) " $i" else ""
+        "$name · ${formatSize(d.freeSpace)} frei" to Uri.fromFile(d)
+    }
+}
+
+/**
+ * Liefert eine Funktion, die die Ordner-Auswahl öffnet und die Wahl dauerhaft speichert.
+ * Auf Fernsehern (ohne Ordner-Auswahl des Systems) erscheint stattdessen eine Liste der Speicher.
+ */
 @Composable
 fun rememberFolderPicker(vm: MainViewModel): () -> Unit {
     val ctx = LocalContext.current
+    var showList by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) {
             runCatching {
@@ -86,14 +106,47 @@ fun rememberFolderPicker(vm: MainViewModel): () -> Unit {
             vm.setTree(uri)
         }
     }
+    if (showList) {
+        val options = remember { appFolders(ctx) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showList = false },
+            title = { Text("Speicherort wählen") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text(
+                        "Dieses Gerät hat keine Ordner-Auswahl. Die Downloads werden im App-Ordner des gewählten Speichers abgelegt.",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                    )
+                    options.forEach { (label, uri) ->
+                        androidx.compose.material3.TextButton(
+                            onClick = { vm.setTree(uri); showList = false },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth()
+                        ) {
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
+                                Text(label)
+                                Text(
+                                    uri.path.orEmpty(),
+                                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { showList = false }) { Text("Abbrechen") } }
+        )
+    }
     return {
-        val hasPicker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).resolveActivity(ctx.packageManager) != null
-        if (hasPicker) {
-            launcher.launch(vm.treeUri?.takeIf { it.scheme != "file" })
+        if (isTelevision(ctx)) {
+            showList = true
         } else {
-            // Viele Fernseher haben keine Ordner-Auswahl: dann in den App-Ordner speichern
-            vm.setTree(appFolder(ctx))
-            Toast.makeText(ctx, "Keine Ordner-Auswahl vorhanden – Speicherort ist der App-Ordner", Toast.LENGTH_LONG).show()
+            try {
+                launcher.launch(vm.treeUri?.takeIf { it.scheme != "file" })
+            } catch (e: Exception) {
+                showList = true // kein Ordner-Auswahldialog vorhanden
+            }
         }
     }
 }

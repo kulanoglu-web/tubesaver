@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Fernseher: Speicherort-Auswahl als Liste (intern, USB-Stick, SD-Karte) statt Systemdialog",
         "Player: Zeitleiste verschiebbar, Pause/Play, weiter an der letzten Stelle; Zusammenfügen schneller mit Prozentanzeige",
         "Neue Seite „Ansehen“ mit allen geladenen Videos; Serien zeigen die Qualitätswahl und merken sich die Qualität für neue Folgen",
         "Serien mit eigenem Kanal: Suche findet Kanäle über Folgen, Kanal als Ganzes abonnierbar, nicht verifizierte nur nach Rückfrage",
