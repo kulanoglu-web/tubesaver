@@ -181,7 +181,7 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ Abonnieren
 
     /** Nimmt die Serie auf; alle jetzt vorhandenen Folgen gelten als bekannt, nur neue werden automatisch geladen. */
-    fun subscribe(hit: SeriesHit, confirmed: Boolean = false) {
+    fun subscribe(hit: SeriesHit, confirmed: Boolean = false, pref: String = "") {
         // Nicht verifizierte Kanäle nur nach ausdrücklicher Bestätigung (Schutz vor Fälschungen)
         if (!hit.verified && !confirmed) {
             pendingUnverified = hit
@@ -198,14 +198,26 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
                     page = SeriesRepo.moreEpisodes(hit.url, page.next!!)
                     known += page.items.map { it.url }
                 }
-                val s = Series(hit.url, hit.name, hit.thumbnail, hit.channelName, System.currentTimeMillis(), known)
+                val s = Series(hit.url, hit.name, hit.thumbnail, hit.channelName, System.currentTimeMillis(), known, pref = pref)
                 mine = mine + s
                 Store.saveSeries(mine)
-                message = "„${hit.name}“ hinzugefügt – neue Folgen werden automatisch geladen"
+                message = "„${hit.name}“ hinzugefügt – neue Folgen werden automatisch geladen" + if (pref.isNotEmpty()) " ($pref)" else ""
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
                 message = "Hinzufügen fehlgeschlagen: ${e.message}"
             }
+        }
+    }
+
+    /** Beim Laden mit Qualitätswahl: Serie merken bzw. gemerkte Qualität aktualisieren. */
+    fun rememberChoice(hit: SeriesHit, option: de.cleartube.app.data.Option, thumb: String?) {
+        val pref = SeriesRepo.corePref(option)
+        if (isSubscribed(hit.url)) {
+            mine = mine.map { if (it.id == hit.url) it.copy(pref = pref) else it }
+            Store.saveSeries(mine)
+            message = "Qualität für „${hit.name}“ gemerkt: $pref"
+        } else {
+            subscribe(hit.copy(thumbnail = hit.thumbnail ?: thumb), confirmed = true, pref = pref)
         }
     }
 

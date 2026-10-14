@@ -31,6 +31,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var details by mutableStateOf<VideoDetails?>(null)
     var detailsLoading by mutableStateOf(false)
 
+    /** Gesetzt, wenn das Fenster aus einer Serie geöffnet wurde (dann kann die Serie gemerkt werden) */
+    var seriesContext by mutableStateOf<de.cleartube.app.data.SeriesHit?>(null)
+
+    fun openFromSeries(url: String, hit: de.cleartube.app.data.SeriesHit?) {
+        openUrl(url, false)
+        seriesContext = hit
+    }
+
     /** true: das Download-Fenster öffnet direkt auf "Audio" */
     var startAudio by mutableStateOf(false)
 
@@ -114,6 +122,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openUrl(url: String, audio: Boolean = false) {
         detailsJob?.cancel()
+        seriesContext = null
         startAudio = audio
         detailsLoading = true
         error = null
@@ -162,10 +171,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         Store.cleanupMb = v
     }
 
-    fun download(option: Option) {
+    fun download(option: Option, seriesId: String = "") {
         val d = details ?: return
         val tree = treeUri ?: return
-        DownloadHub.enqueue(d.title, d.thumbnail, option, tree, d.url)
+        DownloadHub.enqueue(d.title, d.thumbnail, option, tree, d.url, seriesId)
         val ctx = getApplication<Application>()
         ContextCompat.startForegroundService(ctx, Intent(ctx, DownloadService::class.java))
         closeDetails()

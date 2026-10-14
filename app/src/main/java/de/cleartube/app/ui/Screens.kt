@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.NavigationRail
@@ -102,6 +103,7 @@ private const val TAB_SEARCH = 0
 private const val TAB_SERIES = 1
 private const val TAB_DOWNLOADS = 2
 private const val TAB_SETTINGS = 3
+private const val TAB_WATCH = 4
 
 @Composable
 fun AppRoot(vm: MainViewModel) {
@@ -109,7 +111,8 @@ fun AppRoot(vm: MainViewModel) {
     val scope = rememberCoroutineScope()
     val tv = remember { isTelevision(ctx) }
     val seriesVm: SeriesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    var tab by rememberSaveable { mutableIntStateOf(if (tv) TAB_SERIES else TAB_SEARCH) }
+    val hasWatchable = remember { DownloadHub.jobs.value.any { it.state == JobState.DONE && it.resultUri != null } }
+    var tab by rememberSaveable { mutableIntStateOf(if (hasWatchable || tv) TAB_WATCH else TAB_SEARCH) }
     var showInfo by rememberSaveable { mutableStateOf(false) }
     var cleanup by remember { mutableStateOf<List<Cleanup.Candidate>?>(null) }
     val jobs by DownloadHub.jobs.collectAsState()
@@ -118,7 +121,8 @@ fun AppRoot(vm: MainViewModel) {
     }
 
     // Zurück: erst innerhalb eines Reiters, dann zur Suche, erst dann die App verlassen
-    BackHandler(enabled = tab != TAB_SEARCH && !(tab == TAB_SERIES && seriesVm.view != SView.HOME)) { tab = TAB_SEARCH }
+    BackHandler(enabled = tab != TAB_WATCH && !(tab == TAB_SERIES && seriesVm.view != SView.HOME) &&
+        !(tab == TAB_SEARCH && vm.details == null && (vm.results.isNotEmpty() || vm.error != null))) { tab = TAB_WATCH }
     BackHandler(enabled = tab == TAB_SEARCH && vm.details == null && (vm.results.isNotEmpty() || vm.error != null)) {
         vm.clearResults()
     }
@@ -147,8 +151,9 @@ fun AppRoot(vm: MainViewModel) {
     val content: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
             when (tab) {
+                TAB_WATCH -> WatchScreen(jobs, onGoSeries = { tab = TAB_SERIES })
                 TAB_SEARCH -> SearchScreen(vm)
-                TAB_SERIES -> SeriesScreen(seriesVm)
+                TAB_SERIES -> SeriesScreen(seriesVm, onPick = { ep, hit -> vm.openFromSeries(ep.url, hit) })
                 TAB_DOWNLOADS -> DownloadsScreen(jobs)
                 else -> SettingsScreen(
                     vm = vm,
@@ -192,6 +197,10 @@ fun AppRoot(vm: MainViewModel) {
             NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                 Spacer(Modifier.weight(1f))
                 NavigationRailItem(
+                    selected = tab == TAB_WATCH, onClick = { tab = TAB_WATCH },
+                    icon = { Icon(Icons.Default.PlayArrow, null) }, label = { Text("Ansehen") }
+                )
+                NavigationRailItem(
                     selected = tab == TAB_SERIES, onClick = { tab = TAB_SERIES },
                     icon = { Icon(Icons.Default.Tv, null) }, label = { Text("Serien") }
                 )
@@ -231,12 +240,16 @@ fun AppRoot(vm: MainViewModel) {
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     NavigationBarItem(
-                        selected = tab == TAB_SEARCH, onClick = { tab = TAB_SEARCH },
-                        icon = { Icon(Icons.Default.Search, null) }, label = { Text("Suche") }
+                        selected = tab == TAB_WATCH, onClick = { tab = TAB_WATCH },
+                        icon = { Icon(Icons.Default.PlayArrow, null) }, label = { Text("Ansehen") }
                     )
                     NavigationBarItem(
                         selected = tab == TAB_SERIES, onClick = { tab = TAB_SERIES },
                         icon = { Icon(Icons.Default.Tv, null) }, label = { Text("Serien") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == TAB_SEARCH, onClick = { tab = TAB_SEARCH },
+                        icon = { Icon(Icons.Default.Search, null) }, label = { Text("Suche") }
                     )
                     NavigationBarItem(
                         selected = tab == TAB_DOWNLOADS, onClick = { tab = TAB_DOWNLOADS },
@@ -254,7 +267,20 @@ fun AppRoot(vm: MainViewModel) {
     }
 
     vm.details?.let { d ->
-        DetailsSheet(vm, d, onDownload = { vm.download(it); tab = TAB_DOWNLOADS })
+        DetailsSheet(vm, d, onDownload = { opt, keep ->
+            val hit = vm.seriesContext
+            var sid = ""
+            if (hit != null) {
+                if (keep) {
+                    seriesVm.rememberChoice(hit, opt, d.thumbnail)
+                    sid = hit.url
+                } else if (seriesVm.isSubscribed(hit.url)) {
+                    sid = hit.url
+                }
+            }
+            vm.download(opt, sid)
+            tab = TAB_DOWNLOADS
+        })
     }
 
     if (showInfo) InfoDialog(onDismiss = { showInfo = false })
@@ -434,7 +460,9 @@ fun VideoCard(item: VideoItem, onOpen: () -> Unit, onAudio: () -> Unit) {
 // --------------------------------------------- Qualität + Speicherort wählen
 
 @Composable
-fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option) -> Unit) {
+fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolean) -> Unit) {
+    val ctxHit = vm.seriesContext
+    var keep by remember { mutableStateOf(ctxHit?.verified == true) }
     var tab by remember { mutableIntStateOf(if (vm.startAudio) 1 else 0) }
     var selected by remember { mutableStateOf<Option?>(null) }
     val pickFolder = rememberFolderPicker(vm)
@@ -524,9 +552,27 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option) -> Uni
                 }
             }
 
+            if (ctxHit != null) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { keep = !keep }.padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.Checkbox(checked = keep, onCheckedChange = { keep = it })
+                    Column {
+                        Text("Serie merken", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Neue Folgen von „${ctxHit.channelName.ifEmpty { ctxHit.name }}“ automatisch in dieser Qualität laden" +
+                                if (!ctxHit.verified) " (Kanal nicht verifiziert)" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.padding(top = 10.dp))
             Button(
-                onClick = { selected?.let(onDownload) },
+                onClick = { selected?.let { onDownload(it, keep) } },
                 enabled = selected != null && vm.treeUri != null,
                 modifier = Modifier.fillMaxWidth()
             ) {

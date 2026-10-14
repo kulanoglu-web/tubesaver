@@ -104,11 +104,19 @@ object SeriesRepo {
         uploadedText = textualUploadDate
     )
 
-    /** Wählt aus den Varianten die beste bis zur Wunschhöhe, möglichst fertig mit Ton. */
-    fun pickOption(options: List<Option>, maxHeight: Int): Option? {
+    /** Variantenname ohne Größenangabe, z. B. "720p · MP4" */
+    fun corePref(o: Option): String = o.label.replace(Regex(" · ~[\\d.,]+ MB"), "")
+
+    /**
+     * Wählt die gemerkte Variante der Serie; gibt es sie nicht mehr, die beste bis zur gemerkten oder
+     * allgemein eingestellten Höhe.
+     */
+    fun pickOption(options: List<Option>, maxHeight: Int, pref: String = ""): Option? {
         fun height(o: Option) = Regex("^(\\d+)p").find(o.label)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        if (pref.isNotEmpty()) options.firstOrNull { corePref(it) == pref }?.let { return it }
+        val limit = Regex("^(\\d+)p").find(pref)?.groupValues?.get(1)?.toIntOrNull() ?: maxHeight
         val videos = options.filter { it.kind == Kind.VIDEO }
-        return videos.filter { height(it) in 1..maxHeight }.maxByOrNull { height(it) }
+        return videos.filter { height(it) in 1..limit }.maxByOrNull { height(it) }
             ?: videos.minByOrNull { height(it) }
     }
 }

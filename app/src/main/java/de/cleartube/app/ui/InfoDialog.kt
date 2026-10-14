@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Neue Seite „Ansehen“ mit allen geladenen Videos; Serien zeigen die Qualitätswahl und merken sich die Qualität für neue Folgen",
         "Serien mit eigenem Kanal: Suche findet Kanäle über Folgen, Kanal als Ganzes abonnierbar, nicht verifizierte nur nach Rückfrage",
         "Nur ganze Folgen (ab 60 Min., einstellbar) werden automatisch geladen; Vorschauen sind ausgeblendet, aber abrufbar",
         "Version 1.4: Serien – Sender suchen, nur offizielle (verifizierte) Kanäle, Serie hinzufügen, " +

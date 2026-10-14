@@ -48,7 +48,7 @@ object SeriesSync {
                     for (ep in full.take(MAX_PER_SERIES)) {
                         val ok = runCatching {
                             val d = YouTubeRepo.details(ep.url)
-                            val opt = SeriesRepo.pickOption(d.options, Store.seriesHeight) ?: error("keine Variante")
+                            val opt = SeriesRepo.pickOption(d.options, Store.seriesHeight, s.pref) ?: error("keine Variante")
                             DownloadHub.enqueue(d.title, d.thumbnail ?: ep.thumbnail, opt, tree, ep.url, s.id)
                         }.isSuccess
                         if (ok) {

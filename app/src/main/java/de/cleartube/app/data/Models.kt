@@ -71,7 +71,9 @@ data class Series(
     val addedAt: Long,
     /** Adressen aller bisher bekannten Folgen; neue Folgen = nicht in dieser Menge */
     val known: Set<String>,
-    val lastCheck: Long = 0L
+    val lastCheck: Long = 0L,
+    /** Gemerkte Qualität (z. B. "720p · MP4"), mit der neue Folgen automatisch geladen werden */
+    val pref: String = ""
 )
 
 /** Eine Folge einer Serie (Eintrag einer Playlist). */

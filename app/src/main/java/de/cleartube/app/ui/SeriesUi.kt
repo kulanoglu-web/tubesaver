@@ -75,7 +75,7 @@ import de.cleartube.app.data.Store
 import de.cleartube.app.download.DownloadHub
 
 @Composable
-fun SeriesScreen(vm: SeriesViewModel = viewModel()) {
+fun SeriesScreen(vm: SeriesViewModel = viewModel(), onPick: (Episode, SeriesHit?) -> Unit = { _, _ -> }) {
     val ctx = LocalContext.current
     BackHandler(enabled = vm.view != SView.HOME) { vm.back() }
     LaunchedEffect(vm.message) {
@@ -107,9 +107,9 @@ fun SeriesScreen(vm: SeriesViewModel = viewModel()) {
     }
     when (vm.view) {
         SView.HOME -> HomeView(vm)
-        SView.DISCOVER -> DiscoverView(vm)
+        SView.DISCOVER -> DiscoverView(vm, onPick)
         SView.CHANNEL -> ChannelView(vm)
-        SView.DETAIL -> DetailView(vm)
+        SView.DETAIL -> DetailView(vm, onPick)
     }
 }
 
@@ -254,7 +254,7 @@ private fun SeriesRow(s: Series, loaded: Int, unseen: Int, onOpen: () -> Unit, o
 // ------------------------------------------------------------------ Entdecken
 
 @Composable
-private fun DiscoverView(vm: SeriesViewModel) {
+private fun DiscoverView(vm: SeriesViewModel, onPick: (Episode, SeriesHit?) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopRow("Serie hinzufügen", onBack = { vm.back() })
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -299,7 +299,12 @@ private fun DiscoverView(vm: SeriesViewModel) {
                         val job = jobs.lastOrNull { it.videoUrl == v.ep.url && it.state != JobState.FAILED && it.state != JobState.CANCELLED }
                         EpisodeRow(
                             v.ep, job, v.ep.url in vm.busy,
-                            onDownload = { vm.downloadEpisode(v.ep, "") },
+                            onDownload = {
+                                onPick(
+                                    v.ep,
+                                    v.channelUrl?.let { u -> SeriesHit(u, v.channelName, v.ep.thumbnail, v.channelName, v.verified, -1) }
+                                )
+                            },
                             onPlay = { job?.let { openFile(ctx, it) } },
                             channel = v.channelName, verified = v.verified
                         )
@@ -384,7 +389,7 @@ private fun ChannelView(vm: SeriesViewModel) {
 // ------------------------------------------------------------------ Folgen einer Serie
 
 @Composable
-private fun DetailView(vm: SeriesViewModel) {
+private fun DetailView(vm: SeriesViewModel, onPick: (Episode, SeriesHit?) -> Unit) {
     val ctx = LocalContext.current
     val hit = vm.detail ?: return
     val jobs by DownloadHub.jobs.collectAsState()
@@ -442,7 +447,7 @@ private fun DetailView(vm: SeriesViewModel) {
                     val job = jobs.lastOrNull { it.videoUrl == ep.url && it.state != JobState.FAILED && it.state != JobState.CANCELLED }
                     EpisodeRow(
                         ep, job, ep.url in vm.busy,
-                        onDownload = { vm.downloadEpisode(ep, if (subscribed) hit.url else "") },
+                        onDownload = { onPick(ep, hit) },
                         onPlay = { job?.let { openFile(ctx, it) } }
                     )
                 }
@@ -467,7 +472,7 @@ private fun EpisodeRow(
     verified: Boolean = true
 ) {
     val done = job?.state == JobState.DONE && job.resultUri != null
-    CardRow(onClick = if (done) onPlay else onDownload) {
+    CardRow(onClick = if (done) onPlay else if (job == null && !busy) onDownload else ({})) {
         Thumb(ep.thumbnail, Modifier.width(120.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

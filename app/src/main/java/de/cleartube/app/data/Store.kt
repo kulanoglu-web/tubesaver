@@ -83,7 +83,8 @@ object Store {
                 channelName = o.optString("ch"),
                 addedAt = o.optLong("added"),
                 known = (0 until k.length()).map { k.getString(it) }.toSet(),
-                lastCheck = o.optLong("last")
+                lastCheck = o.optLong("last"),
+                pref = o.optString("pref")
             )
         }
     }.getOrDefault(emptyList())
@@ -100,6 +101,7 @@ object Store {
                     put("added", s.addedAt)
                     put("known", JSONArray(s.known.toList().takeLast(400)))
                     put("last", s.lastCheck)
+                    put("pref", s.pref)
                 }
             )
         }
