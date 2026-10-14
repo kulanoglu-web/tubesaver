@@ -11,6 +11,10 @@ Werbefreier YouTube-Downloader für Android (Kotlin + Jetpack Compose), ähnlich
 - **Mehrere Quellen/Verbindungen**: Datei wird in 4-MB-Segmenten über 6 parallele Verbindungen geladen; bei Fehlern wird automatisch der nächste alternative Stream versucht
 - Video und Audio werden ohne Neukodierung zu einer Datei zusammengefügt
 - Downloads laufen als Vordergrunddienst mit Benachrichtigung, Abbrechen möglich
+- **Audio in hoher Qualität** (M4A) direkt per Note in den Suchergebnissen
+- **Downloadliste und letzte Suche** bleiben nach dem Neustart erhalten
+- **Einstellungen**: Speicherort ändern, Aufräum-Vorschlag für Dateien ab 150 MB nach x Tagen
+- Info-Seite mit Version und Funktionsbeschreibung, helles und dunkles Design
 - Keine Werbung, keine Tracker
 
 ## Bauen
@@ -34,3 +38,8 @@ Die Datei `gradle-wrapper.jar` liegt nicht bei. Android Studio lädt Gradle 8.9 
 - Audio wird im Originalformat (M4A/Opus) gespeichert, nicht nach MP3 umgewandelt.
 - Das Herunterladen verstößt gegen die YouTube-Nutzungsbedingungen und kann Urheberrechte berühren.
   Nutze die App nur für eigene Inhalte, Creative-Commons-Videos oder mit Erlaubnis der Rechteinhaber.
+
+## Version
+
+Die Version lautet `1.2.<Build>`; die Build-Nummer zählt bei jedem GitHub-Lauf automatisch hoch und steht in der App unter Info.
+Schlägt ein Build fehl, liegt der Fehlertext im Branch `build-logs` (Datei `errors.txt`).

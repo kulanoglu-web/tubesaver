@@ -244,6 +244,8 @@ object InnerTube {
         }
 
         return videoOpts.sortedByDescending { it.first }.map { it.second } +
-            audioOpts.sortedByDescending { it.first }.map { it.second }
+            audioOpts.sortedWith(
+                compareByDescending<Pair<Int, Option>> { it.second.ext == "m4a" }.thenByDescending { it.first }
+            ).map { it.second }
     }
 }

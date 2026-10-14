@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.cleartube.app.data.Option
 import de.cleartube.app.data.SearchSession
+import de.cleartube.app.data.Store
 import de.cleartube.app.data.VideoDetails
 import de.cleartube.app.data.VideoItem
 import de.cleartube.app.data.YouTubeRepo
@@ -20,15 +21,27 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
-    private val prefs = app.getSharedPreferences("cleartube", 0)
 
-    var query by mutableStateOf("")
-    var results by mutableStateOf<List<VideoItem>>(emptyList())
+    // Letzte Suche und Ergebnisse werden beim Start wiederhergestellt
+    var query by mutableStateOf(Store.lastQuery)
+    var results by mutableStateOf(Store.loadResults())
+    var recents by mutableStateOf(Store.recents())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var details by mutableStateOf<VideoDetails?>(null)
     var detailsLoading by mutableStateOf(false)
-    var treeUri by mutableStateOf(prefs.getString("tree", null)?.let(Uri::parse))
+
+    /** true: das Download-Fenster öffnet direkt auf "Audio" */
+    var startAudio by mutableStateOf(false)
+
+    var treeUri by mutableStateOf(Store.tree?.let(Uri::parse))
+        private set
+
+    var cleanupEnabled by mutableStateOf(Store.cleanupEnabled)
+        private set
+    var cleanupDays by mutableStateOf(Store.cleanupDays)
+        private set
+    var cleanupMb by mutableStateOf(Store.cleanupMb)
         private set
 
     private var session: SearchSession? = null
@@ -39,7 +52,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val q = query.trim()
         if (q.isEmpty()) return
         if (YouTubeRepo.isYoutubeUrl(q)) {
-            openUrl(q)
+            openUrl(q, audio = false)
             return
         }
         loading = true
@@ -49,6 +62,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val (items, s) = YouTubeRepo.search(q)
                 results = items
                 session = s
+                Store.lastQuery = q
+                Store.saveResults(items)
+                Store.addRecent(q)
+                recents = Store.recents()
             } catch (e: Throwable) {
                 error = "Suche fehlgeschlagen: ${e.message}"
             } finally {
@@ -64,6 +81,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 results = results + YouTubeRepo.more(s)
+                Store.saveResults(results)
             } catch (_: Throwable) {
             } finally {
                 loadingMore = false
@@ -71,17 +89,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun open(item: VideoItem) = openUrl(item.url)
+    fun searchFor(q: String) {
+        query = q
+        submit()
+    }
 
-    /** Zurück-Taste in der Ergebnisliste: zurück zur leeren Suche. */
+    fun open(item: VideoItem, audio: Boolean = false) = openUrl(item.url, audio)
+
+    /** Zurück-Taste in der Ergebnisliste: zurück zur leeren Suche (gespeicherte Suche bleibt erhalten). */
     fun clearResults() {
         results = emptyList()
         error = null
         session = null
     }
 
-    fun openUrl(url: String) {
+    fun clearRecents() {
+        Store.clearRecents()
+        recents = emptyList()
+    }
+
+    fun openUrl(url: String, audio: Boolean = false) {
         detailsJob?.cancel()
+        startAudio = audio
         detailsLoading = true
         error = null
         detailsJob = viewModelScope.launch {
@@ -111,7 +140,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTree(uri: Uri) {
         treeUri = uri
-        prefs.edit().putString("tree", uri.toString()).apply()
+        Store.tree = uri.toString()
+    }
+
+    fun setCleanupEnabled(v: Boolean) {
+        cleanupEnabled = v
+        Store.cleanupEnabled = v
+    }
+
+    fun setCleanupDays(v: Int) {
+        cleanupDays = v
+        Store.cleanupDays = v
+    }
+
+    fun setCleanupMb(v: Int) {
+        cleanupMb = v
+        Store.cleanupMb = v
     }
 
     fun download(option: Option) {

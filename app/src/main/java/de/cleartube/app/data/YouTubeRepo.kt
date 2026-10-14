@@ -212,7 +212,11 @@ object YouTubeRepo {
                 )
             }
         }
-        audioOpts.sortByDescending { o -> Regex("""(\d+) kbps""").find(o.label)?.groupValues?.get(1)?.toInt() ?: 0 }
+        // M4A zuerst (läuft auf jedem Gerät), darin die höchste Bitrate vorn
+        audioOpts.sortWith(
+            compareByDescending<Option> { it.ext == "m4a" }
+                .thenByDescending { o -> Regex("""(\d+) kbps""").find(o.label)?.groupValues?.get(1)?.toInt() ?: 0 }
+        )
 
         return videoOpts + audioOpts
     }

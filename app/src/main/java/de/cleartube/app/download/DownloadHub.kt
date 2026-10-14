@@ -4,26 +4,49 @@ import android.net.Uri
 import de.cleartube.app.data.DownloadJob
 import de.cleartube.app.data.JobState
 import de.cleartube.app.data.Option
+import de.cleartube.app.data.Store
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Gemeinsamer Zustand zwischen UI und Download-Service. */
+/** Gemeinsamer Zustand zwischen UI und Download-Service; wird dauerhaft gespeichert. */
 object DownloadHub {
     val jobs = MutableStateFlow<List<DownloadJob>>(emptyList())
     val running = ConcurrentHashMap<Long, Job>()
-    private val ids = AtomicLong(1)
+    private val ids = AtomicLong(System.currentTimeMillis())
+
+    /** Beim App-Start: gespeicherte Liste laden. */
+    fun restore() {
+        jobs.value = Store.loadJobs()
+    }
+
+    private fun persist() {
+        runCatching { Store.saveJobs(jobs.value) }
+    }
 
     fun enqueue(title: String, thumb: String?, option: Option, tree: Uri): DownloadJob {
         val job = DownloadJob(ids.getAndIncrement(), title, thumb, option, tree)
         jobs.update { it + job }
+        persist()
         return job
     }
 
+    /** Fortschritt wird nicht gespeichert, nur Zustandswechsel (sonst zu viele Schreibvorgänge). */
     fun update(id: Long, f: (DownloadJob) -> DownloadJob) {
-        jobs.update { list -> list.map { if (it.id == id) f(it) else it } }
+        var persistNeeded = false
+        jobs.update { list ->
+            persistNeeded = false
+            list.map {
+                if (it.id == id) {
+                    val n = f(it)
+                    if (n.state != it.state || n.resultUri != it.resultUri) persistNeeded = true
+                    n
+                } else it
+            }
+        }
+        if (persistNeeded) persist()
     }
 
     fun nextQueued(): DownloadJob? = jobs.value.firstOrNull { it.state == JobState.QUEUED }
@@ -36,11 +59,13 @@ object DownloadHub {
 
     fun remove(id: Long) {
         jobs.update { list -> list.filterNot { it.id == id } }
+        persist()
     }
 
     fun clearFinished() {
         jobs.update { list ->
             list.filter { it.state == JobState.QUEUED || it.state == JobState.RUNNING || it.state == JobState.MUXING }
         }
+        persist()
     }
 }

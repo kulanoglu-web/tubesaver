@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# Schreibrecht nur, um bei einem Fehler das Build-Log auf den Branch "build-logs" zu legen
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,8 +26,39 @@ jobs:
           gradle-version: "8.9"
 
       - name: Debug-APK bauen
+        id: build
+        continue-on-error: true
         # Die Build-Nummer zählt bei jedem GitHub-Lauf automatisch hoch und wird zur App-Version
-        run: gradle :app:assembleDebug --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }} 2>&1 | tee build.log
+
+      - name: Fehlerlog auf Branch build-logs ablegen
+        if: steps.build.outcome == 'failure'
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs"
+          {
+            echo "Run ${{ github.run_number }} Commit ${{ github.sha }}"
+            echo
+            grep -E "^e: |What went wrong|FAILED" -A4 build.log | head -200 || true
+            echo
+            echo "=== Ende des Logs ==="
+            tail -n 80 build.log
+          } > "$RUNNER_TEMP/logs/errors.txt"
+          cd "$RUNNER_TEMP/logs"
+          git init -q
+          git checkout -q -b build-logs
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add errors.txt
+          git commit -q -m "Build log run ${{ github.run_number }}"
+          git push -f -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" build-logs
+
+      - name: Build-Ergebnis prüfen
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "Build fehlgeschlagen - Details im Branch build-logs (errors.txt)"
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:

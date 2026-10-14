@@ -35,6 +35,26 @@ object Muxer {
         }
     }
 
+    /**
+     * Packt eine reine Audiodatei (YouTube liefert M4A in Stücken) in eine saubere M4A-Datei um,
+     * damit sie in allen Playern mit Laufzeit und Spulen funktioniert. Keine Neukodierung.
+     */
+    fun remuxAudio(src: File, out: File) {
+        val ex = MediaExtractor().apply { setDataSource(src.absolutePath) }
+        val muxer = MediaMuxer(out.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            val i = findTrack(ex, "audio/")
+            ex.selectTrack(i)
+            val t = muxer.addTrack(ex.getTrackFormat(i))
+            muxer.start()
+            copySamples(ex, muxer, t)
+            muxer.stop()
+        } finally {
+            runCatching { muxer.release() }
+            ex.release()
+        }
+    }
+
     private fun findTrack(ex: MediaExtractor, prefix: String): Int {
         for (i in 0 until ex.trackCount) {
             val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue

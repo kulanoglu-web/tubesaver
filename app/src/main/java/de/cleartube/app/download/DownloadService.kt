@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -13,6 +14,7 @@ import de.cleartube.app.App
 import de.cleartube.app.data.DownloadJob
 import de.cleartube.app.data.JobState
 import de.cleartube.app.data.Kind
+import de.cleartube.app.data.Option
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +69,7 @@ class DownloadService : Service() {
             DownloadHub.update(job.id) { it.copy(state = JobState.RUNNING, progress = 0f) }
 
             val hasMux = o.kind == Kind.VIDEO && o.audioUrls.isNotEmpty()
-            val result: File
+            var result: File
 
             if (hasMux) {
                 val vFile = File(dir, "video.part")
@@ -88,8 +90,16 @@ class DownloadService : Service() {
                 DownloadEngine.downloadWithFallback(urls, result, info(job)) { d, t ->
                     report(job, 0.95f * d / t)
                 }
+                // Reine Audiodatei: zu sauberer M4A umpacken, bei Problemen bleibt das Original
+                if (o.kind == Kind.AUDIO && o.ext == "m4a") {
+                    DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f) }
+                    val clean = File(dir, "clean.m4a")
+                    val ok = runCatching { Muxer.remuxAudio(result, clean) }.isSuccess && clean.length() > 0
+                    if (ok) result = clean
+                }
             }
 
+            val size = result.length()
             val outUri = copyToTree(job, result)
             DownloadHub.update(job.id) {
                 it.copy(
@@ -97,7 +107,9 @@ class DownloadService : Service() {
                     progress = 1f,
                     message = null,
                     resultUri = outUri,
-                    openMime = openMime(o)
+                    openMime = openMime(o),
+                    finishedAt = System.currentTimeMillis(),
+                    fileSize = size
                 )
             }
         } catch (e: CancellationException) {
@@ -113,21 +125,22 @@ class DownloadService : Service() {
     }
 
     /** Dateityp, mit dem die fertige Datei in einem Player geöffnet wird. */
-    private fun openMime(o: de.cleartube.app.data.Option): String = when {
+    private fun openMime(o: Option): String = when {
         o.kind == Kind.AUDIO && o.ext == "webm" -> "audio/webm"
         o.kind == Kind.AUDIO -> "audio/mp4"
         o.ext == "webm" -> "video/webm"
         else -> "video/mp4"
     }
 
-    private fun copyToTree(job: DownloadJob, file: File): android.net.Uri {
+    private fun copyToTree(job: DownloadJob, file: File): Uri {
         val root = DocumentFile.fromTreeUri(this, job.tree)
             ?: error("Speicherort nicht mehr verfügbar – bitte neu wählen")
         val ext = job.option.ext
         val name = sanitize(job.title) + "." + ext
-        val mime = when {
-            job.option.kind == Kind.AUDIO -> "application/octet-stream"
-            ext == "webm" -> "video/webm"
+        // Typ passend zur Endung wählen, sonst hängt Android eine zweite Endung an
+        val mime = when (ext) {
+            "m4a" -> "audio/mp4"
+            "webm" -> "video/webm"
             else -> "video/mp4"
         }
         val doc = root.createFile(mime, name) ?: error("Datei im Zielordner nicht anlegbar")

@@ -52,5 +52,8 @@ data class DownloadJob(
     val message: String? = null,
     /** Fertige Datei im gewählten Ordner, zum Öffnen per Antippen */
     val resultUri: Uri? = null,
-    val openMime: String? = null
+    val openMime: String? = null,
+    /** Zeitpunkt des Abschlusses und tatsächliche Dateigröße, für den Aufräum-Vorschlag */
+    val finishedAt: Long = 0L,
+    val fileSize: Long = 0L
 )
