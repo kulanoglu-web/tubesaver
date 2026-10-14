@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Player per Fingerwisch: nach rechts vor, nach links zurück; Doppeltippen links/rechts springt 10 s",
         "Fernseher: externe Festplatten/USB-Speicher als Speicherort, mit Hinweis falls keine gefunden wird",
         "Fernseher: Speicherort-Auswahl als Liste (intern, USB-Stick, SD-Karte) statt Systemdialog",
         "Player: Zeitleiste verschiebbar, Pause/Play, weiter an der letzten Stelle; Zusammenfügen schneller mit Prozentanzeige",

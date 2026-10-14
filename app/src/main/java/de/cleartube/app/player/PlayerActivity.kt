@@ -38,6 +38,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -69,6 +73,7 @@ class PlayerActivity : ComponentActivity() {
     private var isPlaying by mutableStateOf(true)
     private var overlayUntil by mutableLongStateOf(0L)
     private var engineLabel by mutableStateOf("")
+    private var swipeMs by mutableStateOf<Long?>(null)
     private var dragging by mutableStateOf(false)
     private var dragFrac by mutableFloatStateOf(0f)
     private var title = ""
@@ -89,7 +94,42 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             ClearTubeTheme {
-                Box(Modifier.fillMaxSize().background(Color.Black).clickable { showOverlay() }) {
+                var widthPx by remember { mutableStateOf(1f) }
+                Box(
+                    Modifier.fillMaxSize().background(Color.Black)
+                        .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+                        // Tippen: Leiste zeigen; Doppeltippen links/rechts: 10 s zurück/vor
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { showOverlay() },
+                                onDoubleTap = { o -> seekBy(if (o.x < size.width / 2) -10_000 else 10_000) }
+                            )
+                        }
+                        // Wischen: nach rechts vor, nach links zurück (ganze Bildbreite = 2 Minuten)
+                        .pointerInput(Unit) {
+                            var total = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { total = 0f },
+                                onDragEnd = {
+                                    swipeMs?.let { seekBy(it) }
+                                    swipeMs = null
+                                },
+                                onDragCancel = { swipeMs = null },
+                                onHorizontalDrag = { change, dx ->
+                                    change.consume()
+                                    total += dx
+                                    val e = engine
+                                    var delta = (total / widthPx * 120_000f).toLong()
+                                    if (e != null) {
+                                        val max = if (e.duration > 0) e.duration else Long.MAX_VALUE
+                                        delta = delta.coerceIn(-e.position, max - e.position)
+                                    }
+                                    swipeMs = delta
+                                    showOverlay()
+                                }
+                            )
+                        }
+                ) {
                     AndroidView(factory = { holder }, modifier = Modifier.fillMaxSize())
                     LaunchedEffect(Unit) {
                         while (true) {
@@ -104,6 +144,18 @@ class PlayerActivity : ComponentActivity() {
                     }
                     val visible = System.currentTimeMillis() < overlayUntil || !isPlaying || dragging
                     if (visible) Overlay()
+                    swipeMs?.let { d ->
+                        val e = engine
+                        val target = ((e?.position ?: 0L) + d).coerceAtLeast(0)
+                        Text(
+                            (if (d >= 0) "▶▶ +" else "◀◀ −") + (formatDuration(kotlin.math.abs(d) / 1000) ?: "0:00") +
+                                "\n" + (formatDuration(target / 1000) ?: "0:00"),
+                            color = Color.White,
+                            style = MaterialTheme.typography.headlineMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.align(Alignment.Center).background(Color(0x99000000)).padding(20.dp)
+                        )
+                    }
                 }
             }
         }
