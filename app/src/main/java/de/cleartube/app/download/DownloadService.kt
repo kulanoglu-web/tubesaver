@@ -167,6 +167,15 @@ class DownloadService : Service() {
     }
 
     private fun copyToTree(job: DownloadJob, file: File, o: Option): Uri {
+        if (job.tree.scheme == "file") {
+            // App-Ordner (z. B. auf dem Fernseher ohne Ordner-Auswahl)
+            val dir = File(job.tree.path!!).apply { mkdirs() }
+            var target = File(dir, sanitize(job.title) + "." + o.ext)
+            var n = 1
+            while (target.exists()) target = File(dir, sanitize(job.title) + " (${n++})." + o.ext)
+            file.copyTo(target, overwrite = false)
+            return Uri.fromFile(target)
+        }
         val root = DocumentFile.fromTreeUri(this, job.tree)
             ?: error("Speicherort nicht mehr verfügbar – bitte neu wählen")
         val ext = o.ext

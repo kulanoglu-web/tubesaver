@@ -35,6 +35,9 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -95,11 +98,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val TAB_SEARCH = 0
+private const val TAB_SERIES = 1
+private const val TAB_DOWNLOADS = 2
+private const val TAB_SETTINGS = 3
+
 @Composable
 fun AppRoot(vm: MainViewModel) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val tv = remember { isTelevision(ctx) }
+    val seriesVm: SeriesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    var tab by rememberSaveable { mutableIntStateOf(if (tv) TAB_SERIES else TAB_SEARCH) }
     var showInfo by rememberSaveable { mutableStateOf(false) }
     var cleanup by remember { mutableStateOf<List<Cleanup.Candidate>?>(null) }
     val jobs by DownloadHub.jobs.collectAsState()
@@ -107,14 +117,26 @@ fun AppRoot(vm: MainViewModel) {
         it.state == JobState.QUEUED || it.state == JobState.RUNNING || it.state == JobState.MUXING
     }
 
-    // Zurück: Downloads/Einstellungen -> Suche, Ergebnisliste -> leere Suche, erst dann die App verlassen
-    BackHandler(enabled = tab != 0) { tab = 0 }
-    BackHandler(enabled = tab == 0 && vm.details == null && (vm.results.isNotEmpty() || vm.error != null)) {
+    // Zurück: erst innerhalb eines Reiters, dann zur Suche, erst dann die App verlassen
+    BackHandler(enabled = tab != TAB_SEARCH && !(tab == TAB_SERIES && seriesVm.view != SView.HOME)) { tab = TAB_SEARCH }
+    BackHandler(enabled = tab == TAB_SEARCH && vm.details == null && (vm.results.isNotEmpty() || vm.error != null)) {
         vm.clearResults()
     }
 
-    // Beim Start höchstens einmal pro Tag große, alte Dateien zum Löschen vorschlagen
+    // Beim Start: wartende Downloads fortsetzen, alte Folgen aufräumen, nach neuen Folgen suchen
     LaunchedEffect(Unit) {
+        if (DownloadHub.nextQueued() != null) {
+            runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(
+                    ctx, android.content.Intent(ctx, de.cleartube.app.download.DownloadService::class.java)
+                )
+            }
+        }
+        withContext(Dispatchers.IO) { de.cleartube.app.download.SeriesSync.autoDelete(ctx) }
+        if (Store.seriesAutoDownload && Store.loadSeries().isNotEmpty()) {
+            runCatching { de.cleartube.app.download.SeriesSync.check(ctx) }
+            seriesVm.refreshMine()
+        }
         val dayPassed = System.currentTimeMillis() - Store.cleanupLastPrompt > 24L * 3600 * 1000
         if (Store.cleanupEnabled && dayPassed) {
             val found = withContext(Dispatchers.IO) { Cleanup.find(ctx) }
@@ -122,50 +144,12 @@ fun AppRoot(vm: MainViewModel) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Download, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("ClearTube", fontWeight = FontWeight.Bold)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "Info") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                NavigationBarItem(
-                    selected = tab == 0, onClick = { tab = 0 },
-                    icon = { Icon(Icons.Default.Search, null) }, label = { Text("Suche") }
-                )
-                NavigationBarItem(
-                    selected = tab == 1, onClick = { tab = 1 },
-                    icon = {
-                        if (active > 0) {
-                            BadgedBox(badge = { Badge { Text("$active") } }) { Icon(Icons.Default.Download, null) }
-                        } else {
-                            Icon(Icons.Default.Download, null)
-                        }
-                    },
-                    label = { Text("Downloads") }
-                )
-                NavigationBarItem(
-                    selected = tab == 2, onClick = { tab = 2 },
-                    icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Einstellungen") }
-                )
-            }
-        }
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+    val content: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize()) {
             when (tab) {
-                0 -> SearchScreen(vm)
-                1 -> DownloadsScreen(jobs)
+                TAB_SEARCH -> SearchScreen(vm)
+                TAB_SERIES -> SeriesScreen(seriesVm)
+                TAB_DOWNLOADS -> DownloadsScreen(jobs)
                 else -> SettingsScreen(
                     vm = vm,
                     onInfo = { showInfo = true },
@@ -194,8 +178,83 @@ fun AppRoot(vm: MainViewModel) {
         }
     }
 
+    val downloadsIcon: @Composable () -> Unit = {
+        if (active > 0) {
+            BadgedBox(badge = { Badge { Text("$active") } }) { Icon(Icons.Default.Download, null) }
+        } else {
+            Icon(Icons.Default.Download, null)
+        }
+    }
+
+    if (tv) {
+        // Fernseher: Navigationsleiste links, große Fläche rechts, alles per Fernbedienung erreichbar
+        Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                Spacer(Modifier.weight(1f))
+                NavigationRailItem(
+                    selected = tab == TAB_SERIES, onClick = { tab = TAB_SERIES },
+                    icon = { Icon(Icons.Default.Tv, null) }, label = { Text("Serien") }
+                )
+                NavigationRailItem(
+                    selected = tab == TAB_SEARCH, onClick = { tab = TAB_SEARCH },
+                    icon = { Icon(Icons.Default.Search, null) }, label = { Text("Suche") }
+                )
+                NavigationRailItem(
+                    selected = tab == TAB_DOWNLOADS, onClick = { tab = TAB_DOWNLOADS },
+                    icon = downloadsIcon, label = { Text("Downloads") }
+                )
+                NavigationRailItem(
+                    selected = tab == TAB_SETTINGS, onClick = { tab = TAB_SETTINGS },
+                    icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Einstellungen") }
+                )
+                Spacer(Modifier.weight(1f))
+            }
+            Box(Modifier.weight(1f).fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)) { content() }
+        }
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Download, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("ClearTube", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "Info") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                )
+            },
+            bottomBar = {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    NavigationBarItem(
+                        selected = tab == TAB_SEARCH, onClick = { tab = TAB_SEARCH },
+                        icon = { Icon(Icons.Default.Search, null) }, label = { Text("Suche") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == TAB_SERIES, onClick = { tab = TAB_SERIES },
+                        icon = { Icon(Icons.Default.Tv, null) }, label = { Text("Serien") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == TAB_DOWNLOADS, onClick = { tab = TAB_DOWNLOADS },
+                        icon = downloadsIcon, label = { Text("Downloads") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == TAB_SETTINGS, onClick = { tab = TAB_SETTINGS },
+                        icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Einstellungen") }
+                    )
+                }
+            }
+        ) { padding ->
+            Box(Modifier.padding(padding).fillMaxSize()) { content() }
+        }
+    }
+
     vm.details?.let { d ->
-        DetailsSheet(vm, d, onDownload = { vm.download(it); tab = 1 })
+        DetailsSheet(vm, d, onDownload = { vm.download(it); tab = TAB_DOWNLOADS })
     }
 
     if (showInfo) InfoDialog(onDismiss = { showInfo = false })

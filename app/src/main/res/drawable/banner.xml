@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Startbild für den Android-TV-Launcher (320 x 180) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#D32F2F" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M150,40h20v44h20L160,116L130,84h20z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M124,128h72v8h-72z" />
+</vector>

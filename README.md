@@ -43,3 +43,12 @@ Die Datei `gradle-wrapper.jar` liegt nicht bei. Android Studio lädt Gradle 8.9 
 
 Die Version lautet `1.2.<Build>`; die Build-Nummer zählt bei jedem GitHub-Lauf automatisch hoch und steht in der App unter Info.
 Schlägt ein Build fehl, liegt der Fehlertext im Branch `build-logs` (Datei `errors.txt`).
+
+## Version 1.4: Serien, Player, Fernseher
+
+- **Serien:** Sender wählen (Show TV, Star TV, ATV, Kanal D, NOW, TRT 1, TV8, Kanal 7) oder Serie suchen. Nur Playlists von
+  verifizierten (offiziellen) YouTube-Kanälen lassen sich hinzufügen. Neue Folgen werden alle 6 Stunden und beim Öffnen der App
+  automatisch geladen und nach einstellbarer Zeit (Standard 21 Tage) gelöscht.
+- **Player:** VLC (libVLC) und ExoPlayer (Media3), beide Open Source; Auswahl in den Einstellungen, automatischer Wechsel bei Fehlern.
+- **Fernseher:** Dieselbe APK startet auf Android TV mit Navigationsleiste und Fernbedienungs-Bedienung; ohne Ordner-Auswahl
+  wird in den App-Ordner gespeichert.

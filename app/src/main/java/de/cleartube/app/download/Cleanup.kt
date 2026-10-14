@@ -29,8 +29,16 @@ object Cleanup {
     }
 
     fun exists(ctx: Context, uri: Uri): Boolean =
-        runCatching { DocumentFile.fromSingleUri(ctx, uri)?.exists() == true }.getOrDefault(false)
+        if (uri.scheme == "file") {
+            runCatching { java.io.File(uri.path!!).exists() }.getOrDefault(false)
+        } else {
+            runCatching { DocumentFile.fromSingleUri(ctx, uri)?.exists() == true }.getOrDefault(false)
+        }
 
     fun delete(ctx: Context, uri: Uri): Boolean =
-        runCatching { DocumentFile.fromSingleUri(ctx, uri)?.delete() == true }.getOrDefault(false)
+        if (uri.scheme == "file") {
+            runCatching { java.io.File(uri.path!!).delete() }.getOrDefault(false)
+        } else {
+            runCatching { DocumentFile.fromSingleUri(ctx, uri)?.delete() == true }.getOrDefault(false)
+        }
 }

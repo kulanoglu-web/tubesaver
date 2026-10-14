@@ -16,7 +16,9 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "1.3.$buildNumber"
+        versionName = "1.4.$buildNumber"
+        // libVLC bringt native Bibliotheken mit: nur die ARM-Geräte (Handys, Fernseher) einpacken
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Fester Schlüssel, damit jede neue APK als Update über die alte installiert werden kann
@@ -72,4 +74,12 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Hintergrundprüfung auf neue Folgen
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Player: ExoPlayer (Media3) und VLC (libVLC), beide Open Source
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("org.videolan.android:libvlc-all:3.6.0")
 }

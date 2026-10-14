@@ -116,7 +116,7 @@ fun JobCard(j: DownloadJob) {
         JobState.MUXING -> j.message ?: "Wird zusammengefügt…"
         JobState.DONE -> {
             val size = if (j.fileSize > 0) formatSize(j.fileSize) + " · " else ""
-            size + (if (canOpen) "antippen zum Abspielen" else "fertig")
+            size + (if (canOpen) (if (de.cleartube.app.data.Store.watched(j.id)) "gesehen · antippen zum Abspielen" else "antippen zum Abspielen") else "fertig")
         }
         JobState.FAILED -> "Fehler: ${j.message ?: "unbekannt"}"
         JobState.CANCELLED -> "Abgebrochen"
@@ -200,6 +200,18 @@ fun JobCard(j: DownloadJob) {
                                 text = { Text("Abspielen") },
                                 leadingIcon = { Icon(Icons.Default.PlayArrow, null) },
                                 onClick = { menu = false; openFile(ctx, j) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mit VLC abspielen") },
+                                onClick = { menu = false; openFile(ctx, j, "vlc") }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mit ExoPlayer abspielen") },
+                                onClick = { menu = false; openFile(ctx, j, "exo") }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("In anderer App öffnen") },
+                                onClick = { menu = false; openFile(ctx, j, "extern") }
                             )
                         }
                         DropdownMenuItem(

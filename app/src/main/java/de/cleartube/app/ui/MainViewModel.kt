@@ -44,6 +44,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var cleanupMb by mutableStateOf(Store.cleanupMb)
         private set
 
+    init {
+        if (treeUri == null && isTelevision(app)) setTree(appFolder(app))
+    }
+
     private var session: SearchSession? = null
     private var loadingMore = false
     private var detailsJob: Job? = null

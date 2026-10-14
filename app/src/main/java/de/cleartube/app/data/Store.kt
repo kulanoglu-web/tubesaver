@@ -36,6 +36,71 @@ object Store {
         get() = prefs.getLong("cl_last", 0L)
         set(v) = prefs.edit().putLong("cl_last", v).apply()
 
+    /** "vlc", "exo" oder "extern" */
+    var player: String
+        get() = prefs.getString("player", "vlc") ?: "vlc"
+        set(v) = prefs.edit().putString("player", v).apply()
+
+    var seriesAutoDelete: Boolean
+        get() = prefs.getBoolean("s_del", true)
+        set(v) = prefs.edit().putBoolean("s_del", v).apply()
+
+    var seriesKeepDays: Int
+        get() = prefs.getInt("s_days", 21)
+        set(v) = prefs.edit().putInt("s_days", v).apply()
+
+    /** Wunschhöhe für automatisch geladene Folgen (z. B. 720) */
+    var seriesHeight: Int
+        get() = prefs.getInt("s_h", 720)
+        set(v) = prefs.edit().putInt("s_h", v).apply()
+
+    var seriesAutoDownload: Boolean
+        get() = prefs.getBoolean("s_auto", true)
+        set(v) = prefs.edit().putBoolean("s_auto", v).apply()
+
+    // Abspielposition und "gesehen" je Download
+    fun position(jobId: Long): Long = prefs.getLong("pos_$jobId", 0L)
+    fun setPosition(jobId: Long, ms: Long) = prefs.edit().putLong("pos_$jobId", ms).apply()
+    fun watched(jobId: Long): Boolean = prefs.getBoolean("seen_$jobId", false)
+    fun setWatched(jobId: Long, v: Boolean) = prefs.edit().putBoolean("seen_$jobId", v).apply()
+
+    // ------------------------------------------------------------ Serien
+
+    fun loadSeries(): List<Series> = runCatching {
+        val arr = JSONArray(prefs.getString("series", "[]") ?: "[]")
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val k = o.optJSONArray("known") ?: JSONArray()
+            Series(
+                id = o.getString("id"),
+                name = o.optString("name"),
+                thumbnail = o.str("th"),
+                channelName = o.optString("ch"),
+                addedAt = o.optLong("added"),
+                known = (0 until k.length()).map { k.getString(it) }.toSet(),
+                lastCheck = o.optLong("last")
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveSeries(list: List<Series>) {
+        val arr = JSONArray()
+        list.forEach { s ->
+            arr.put(
+                JSONObject().apply {
+                    put("id", s.id)
+                    put("name", s.name)
+                    put("th", s.thumbnail ?: JSONObject.NULL)
+                    put("ch", s.channelName)
+                    put("added", s.addedAt)
+                    put("known", JSONArray(s.known.toList().takeLast(400)))
+                    put("last", s.lastCheck)
+                }
+            )
+        }
+        prefs.edit().putString("series", arr.toString()).apply()
+    }
+
     // ------------------------------------------------------------ Letzte Suche
 
     var lastQuery: String
@@ -107,6 +172,7 @@ object Store {
                     put("osize", j.option.sizeBytes)
                     put("tree", j.tree.toString())
                     put("vurl", j.videoUrl)
+                    put("sid", j.seriesId)
                     put("state", j.state.name)
                     put("progress", j.progress.toDouble())
                     put("msg", j.message ?: JSONObject.NULL)
@@ -125,7 +191,7 @@ object Store {
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val saved = JobState.valueOf(o.getString("state"))
-            val interrupted = saved == JobState.QUEUED || saved == JobState.RUNNING || saved == JobState.MUXING
+            val interrupted = saved == JobState.RUNNING || saved == JobState.MUXING
             DownloadJob(
                 id = o.getLong("id"),
                 title = o.optString("title"),
@@ -141,6 +207,7 @@ object Store {
                 ),
                 tree = Uri.parse(o.getString("tree")),
                 videoUrl = o.optString("vurl"),
+                seriesId = o.optString("sid"),
                 state = if (interrupted) JobState.FAILED else saved,
                 progress = o.optDouble("progress", 0.0).toFloat(),
                 message = if (interrupted) "Unterbrochen – bitte erneut starten" else o.str("msg"),

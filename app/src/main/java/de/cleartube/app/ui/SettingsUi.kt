@@ -23,7 +23,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -34,6 +36,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,6 +113,75 @@ fun SettingsScreen(vm: MainViewModel, onInfo: () -> Unit, onCheckCleanup: () -> 
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             OutlinedButton(onClick = onCheckCleanup, modifier = Modifier.fillMaxWidth()) { Text("Jetzt prüfen") }
+        }
+
+        SectionCard("Player") {
+            var player by remember { mutableStateOf(Store.player) }
+            Text(
+                "Beide Player sind Open Source. Bei einem Fehler wechselt die App automatisch zum anderen.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            listOf(
+                "vlc" to "VLC (libVLC) – spielt fast alles ab",
+                "exo" to "ExoPlayer (Media3) – schlank und schnell",
+                "extern" to "Andere App auf dem Gerät (z. B. VLC-App, MX Player)"
+            ).forEach { (key, label) ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { player = key; Store.player = key },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = player == key, onClick = { player = key; Store.player = key })
+                    Text(label)
+                }
+            }
+        }
+
+        SectionCard("Serien") {
+            var auto by remember { mutableStateOf(Store.seriesAutoDownload) }
+            var del by remember { mutableStateOf(Store.seriesAutoDelete) }
+            var days by remember { mutableStateOf(Store.seriesKeepDays) }
+            var height by remember { mutableStateOf(Store.seriesHeight) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Neue Folgen automatisch laden")
+                    Text(
+                        "Alle 6 Stunden und beim Öffnen der App wird nach neuen Folgen gesucht.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = auto, onCheckedChange = { auto = it; Store.seriesAutoDownload = it })
+            }
+            Text("Qualität für automatische Downloads", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(480, 720, 1080).forEach { h ->
+                    FilterChip(
+                        selected = height == h,
+                        onClick = { height = h; Store.seriesHeight = h },
+                        label = { Text("${h}p") }
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Folgen automatisch löschen")
+                    Text(
+                        "Gilt für Folgen aus abonnierten Serien. Du kannst jederzeit auch von Hand löschen.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = del, onCheckedChange = { del = it; Store.seriesAutoDelete = it })
+            }
+            if (del) {
+                Text("Nach $days Tagen", style = MaterialTheme.typography.labelLarge)
+                Slider(
+                    value = days.toFloat(),
+                    onValueChange = { days = it.roundToInt().coerceIn(1, 60); Store.seriesKeepDays = days },
+                    valueRange = 1f..60f
+                )
+            }
         }
 
         SectionCard("Info") {
