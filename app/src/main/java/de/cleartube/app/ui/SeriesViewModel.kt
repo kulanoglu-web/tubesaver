@@ -50,8 +50,17 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
     var episodes by mutableStateOf<List<Episode>>(emptyList())
     /** false: nur ganze Folgen (Standard), true: alles inkl. Vorschauen und Ausschnitte */
     var showAll by mutableStateOf(false)
-    val visible get() = if (showAll) episodes else episodes.filter { it.isFull() }
-    val hiddenCount get() = episodes.size - episodes.count { it.isFull() }
+    /** Folge stammt nicht vom gemerkten/besitzenden Kanal der Playlist (mögliche Fälschung) */
+    fun isForeign(ep: Episode): Boolean {
+        val d = detail ?: return false
+        if (SeriesRepo.isChannelUrl(d.url)) return false
+        val sub = mine.firstOrNull { it.id == d.url }
+        val chUrl = sub?.channelUrl?.ifEmpty { null } ?: d.channelUrl
+        val chName = sub?.channelName ?: d.channelName
+        return !SeriesRepo.fromTrustedChannel(ep, d.url, chUrl, chName)
+    }
+    val visible get() = if (showAll) episodes else episodes.filter { it.isFull() && !isForeign(it) }
+    val hiddenCount get() = episodes.size - episodes.count { it.isFull() && !isForeign(it) }
     private var nextPage: Page? = null
     val hasMore get() = nextPage != null
 
@@ -153,7 +162,7 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openMine(s: Series) =
-        openSeries(SeriesHit(s.id, s.name, s.thumbnail, s.channelName, verified = true, episodes = -1), SView.HOME)
+        openSeries(SeriesHit(s.id, s.name, s.thumbnail, s.channelName, verified = true, episodes = -1, channelUrl = s.channelUrl), SView.HOME)
 
     fun loadMore() {
         val d = detail ?: return
@@ -198,10 +207,23 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
                     page = SeriesRepo.moreEpisodes(hit.url, page.next!!)
                     known += page.items.map { it.url }
                 }
-                val s = Series(hit.url, hit.name, hit.thumbnail, hit.channelName, System.currentTimeMillis(), known, pref = pref)
+                // Kanal der Serie merken: Playlists können Videos beliebiger Kanäle enthalten, geladen wird nur vom eigenen
+                var chName = hit.channelName
+                var chUrl = hit.channelUrl
+                if (!SeriesRepo.isChannelUrl(hit.url) && chUrl.isEmpty()) {
+                    runCatching { SeriesRepo.playlistOwner(hit.url) }.getOrNull()?.let { (n, u) ->
+                        if (n.isNotEmpty()) chName = n
+                        chUrl = u
+                    }
+                }
+                if (SeriesRepo.isChannelUrl(hit.url)) chUrl = hit.url
+                val s = Series(
+                    hit.url, hit.name, hit.thumbnail, chName, System.currentTimeMillis(), known,
+                    pref = pref, channelUrl = chUrl
+                )
                 mine = mine + s
                 Store.saveSeries(mine)
-                message = "„${hit.name}“ hinzugefügt – neue Folgen werden automatisch geladen" + if (pref.isNotEmpty()) " ($pref)" else ""
+                message = "„${hit.name}“ hinzugefügt – Quelle: ${s.channelName}. Neue Folgen werden nur von diesem Kanal automatisch geladen" + if (pref.isNotEmpty()) " ($pref)" else ""
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
                 message = "Hinzufügen fehlgeschlagen: ${e.message}"

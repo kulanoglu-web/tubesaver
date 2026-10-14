@@ -239,7 +239,10 @@ private fun SeriesRow(s: Series, loaded: Int, unseen: Int, onOpen: () -> Unit, o
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(s.name, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-            Text(s.channelName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Quelle: " + s.channelName.ifEmpty { "unbekannt" } + if (s.pref.isNotEmpty()) " · ${s.pref}" else "",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(
                 if (loaded == 0) "Keine Folge geladen"
                 else "$loaded geladen" + if (unseen > 0) " · $unseen ungesehen" else "",
@@ -448,7 +451,8 @@ private fun DetailView(vm: SeriesViewModel, onPick: (Episode, SeriesHit?) -> Uni
                     EpisodeRow(
                         ep, job, ep.url in vm.busy,
                         onDownload = { onPick(ep, hit) },
-                        onPlay = { job?.let { openFile(ctx, it) } }
+                        onPlay = { job?.let { openFile(ctx, it) } },
+                        foreign = if (vm.isForeign(ep)) ep.uploaderName.ifEmpty { "unbekannt" } else null
                     )
                 }
                 if (vm.hasMore) {
@@ -469,7 +473,8 @@ private fun EpisodeRow(
     onDownload: () -> Unit,
     onPlay: () -> Unit,
     channel: String? = null,
-    verified: Boolean = true
+    verified: Boolean = true,
+    foreign: String? = null
 ) {
     val done = job?.state == JobState.DONE && job.resultUri != null
     CardRow(onClick = if (done) onPlay else if (job == null && !busy) onDownload else ({})) {
@@ -481,6 +486,12 @@ private fun EpisodeRow(
             val sub = listOfNotNull(formatDuration(ep.durationSec), ep.uploadedText).joinToString(" · ")
             if (sub.isNotEmpty()) {
                 Text(sub, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (foreign != null) {
+                Text(
+                    "Fremder Kanal: $foreign – wird nicht automatisch geladen",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
+                )
             }
             if (!ep.isFull()) {
                 Text("Vorschau / Ausschnitt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)

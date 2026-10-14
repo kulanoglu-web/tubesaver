@@ -51,6 +51,8 @@ data class DownloadJob(
     val videoUrl: String = "",
     /** Gehört zu einer abonnierten Serie (Adresse der Playlist), sonst leer */
     val seriesId: String = "",
+    /** Kanal, von dem das Video stammt (zur Kontrolle gegen Fälschungen) */
+    val channel: String = "",
     val state: JobState = JobState.QUEUED,
     val progress: Float = 0f,
     val message: String? = null,
@@ -73,7 +75,9 @@ data class Series(
     val known: Set<String>,
     val lastCheck: Long = 0L,
     /** Gemerkte Qualität (z. B. "720p · MP4"), mit der neue Folgen automatisch geladen werden */
-    val pref: String = ""
+    val pref: String = "",
+    /** Adresse des gemerkten (offiziellen) Kanals; nur von dort werden Folgen automatisch geladen */
+    val channelUrl: String = ""
 )
 
 /** Eine Folge einer Serie (Eintrag einer Playlist). */
@@ -82,7 +86,9 @@ data class Episode(
     val title: String,
     val thumbnail: String?,
     val durationSec: Long,
-    val uploadedText: String?
+    val uploadedText: String?,
+    val uploaderName: String = "",
+    val uploaderUrl: String = ""
 ) {
     /** Ganze Folge: mindestens die eingestellte Länge; unbekannte Dauer (Livestream) zählt nicht. */
     fun isFull(): Boolean = durationSec >= Store.seriesMinMinutes * 60L
@@ -98,5 +104,6 @@ data class SeriesHit(
     val thumbnail: String?,
     val channelName: String,
     val verified: Boolean,
-    val episodes: Long
+    val episodes: Long,
+    val channelUrl: String = ""
 )

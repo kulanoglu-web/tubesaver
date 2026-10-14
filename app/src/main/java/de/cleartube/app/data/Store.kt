@@ -86,7 +86,8 @@ object Store {
                 addedAt = o.optLong("added"),
                 known = (0 until k.length()).map { k.getString(it) }.toSet(),
                 lastCheck = o.optLong("last"),
-                pref = o.optString("pref")
+                pref = o.optString("pref"),
+                channelUrl = o.optString("chu")
             )
         }
     }.getOrDefault(emptyList())
@@ -104,6 +105,7 @@ object Store {
                     put("known", JSONArray(s.known.toList().takeLast(400)))
                     put("last", s.lastCheck)
                     put("pref", s.pref)
+                    put("chu", s.channelUrl)
                 }
             )
         }
@@ -182,6 +184,7 @@ object Store {
                     put("tree", j.tree.toString())
                     put("vurl", j.videoUrl)
                     put("sid", j.seriesId)
+                    put("chan", j.channel)
                     put("state", j.state.name)
                     put("progress", j.progress.toDouble())
                     put("msg", j.message ?: JSONObject.NULL)
@@ -217,6 +220,7 @@ object Store {
                 tree = Uri.parse(o.getString("tree")),
                 videoUrl = o.optString("vurl"),
                 seriesId = o.optString("sid"),
+                channel = o.optString("chan"),
                 state = if (interrupted) JobState.FAILED else saved,
                 progress = o.optDouble("progress", 0.0).toFloat(),
                 message = if (interrupted) "Unterbrochen – bitte erneut starten" else o.str("msg"),

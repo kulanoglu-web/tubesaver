@@ -219,6 +219,7 @@ private fun WatchCard(j: DownloadJob, tick: Int, onChanged: () -> Unit, onDelete
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium
                     )
                     val sub = listOfNotNull(
+                        j.channel.takeIf { it.isNotEmpty() },
                         if (j.fileSize > 0) formatSize(j.fileSize) else null,
                         ageText(j.finishedAt).takeIf { it.isNotEmpty() },
                         if (pos > 10_000 && !seen) "weiter bei " + (formatDuration(pos / 1000) ?: "0:00") else null

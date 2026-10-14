@@ -43,13 +43,15 @@ object SeriesSync {
                 val handled = mutableListOf<String>()
                 if (tree != null) {
                     // Vorschauen und Ausschnitte (kürzer als die Mindestlänge) werden nicht automatisch geladen
-                    val full = fresh.filter { it.isFull() }
-                    handled += fresh.filterNot { it.isFull() }.map { it.url }
+                    // Nur ganze Folgen vom gemerkten Kanal; Fremd-Uploads in Playlists werden nie geladen
+                    val trusted = fresh.filter { SeriesRepo.fromTrustedChannel(it, s.id, s.channelUrl, s.channelName) }
+                    val full = trusted.filter { it.isFull() }
+                    handled += fresh.filterNot { it in full }.map { it.url }
                     for (ep in full.take(MAX_PER_SERIES)) {
                         val ok = runCatching {
                             val d = YouTubeRepo.details(ep.url)
                             val opt = SeriesRepo.pickOption(d.options, Store.seriesHeight, s.pref) ?: error("keine Variante")
-                            DownloadHub.enqueue(d.title, d.thumbnail ?: ep.thumbnail, opt, tree, ep.url, s.id)
+                            DownloadHub.enqueue(d.title, d.thumbnail ?: ep.thumbnail, opt, tree, ep.url, s.id, d.uploader)
                         }.isSuccess
                         if (ok) {
                             queued++

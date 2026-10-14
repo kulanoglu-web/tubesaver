@@ -161,7 +161,8 @@ fun JobCard(j: DownloadJob) {
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        j.option.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        (if (j.channel.isNotEmpty()) j.channel + " · " else "") + j.option.label,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

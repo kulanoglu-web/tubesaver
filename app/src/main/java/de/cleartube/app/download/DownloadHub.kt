@@ -26,8 +26,8 @@ object DownloadHub {
         runCatching { Store.saveJobs(jobs.value) }
     }
 
-    fun enqueue(title: String, thumb: String?, option: Option, tree: Uri, videoUrl: String = "", seriesId: String = ""): DownloadJob {
-        val job = DownloadJob(ids.getAndIncrement(), title, thumb, option, tree, videoUrl, seriesId)
+    fun enqueue(title: String, thumb: String?, option: Option, tree: Uri, videoUrl: String = "", seriesId: String = "", channel: String = ""): DownloadJob {
+        val job = DownloadJob(ids.getAndIncrement(), title, thumb, option, tree, videoUrl, seriesId, channel)
         jobs.update { it + job }
         persist()
         return job

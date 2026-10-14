@@ -38,22 +38,39 @@ object SeriesRepo {
 
     /** Playlists (Serien) eines Kanals; Verifizierung kommt vom Kanal selbst. */
     suspend fun channelSeries(channelUrl: String): List<SeriesHit> = withContext(Dispatchers.IO) {
+        val url0 = channelUrl
         val ch = ChannelInfo.getInfo(yt, channelUrl)
         val tab = ch.tabs.firstOrNull { ChannelTabs.PLAYLISTS in it.contentFilters } ?: return@withContext emptyList()
         val info = ChannelTabInfo.getInfo(yt, tab)
         info.relatedItems.filterIsInstance<PlaylistInfoItem>()
-            .map { it.toHit(ch.isVerified, ch.name) }
+            .map { it.toHit(ch.isVerified, ch.name, url0) }
             .filter { it.episodes != 0L }
     }
 
-    private fun PlaylistInfoItem.toHit(verified: Boolean, channel: String? = null) = SeriesHit(
+    private fun PlaylistInfoItem.toHit(verified: Boolean, channel: String? = null, channelUrl: String? = null) = SeriesHit(
         url = url,
         name = name ?: "",
         thumbnail = thumbnails.firstOrNull()?.url,
         channelName = channel ?: uploaderName ?: "",
         verified = verified,
-        episodes = streamCount
+        episodes = streamCount,
+        channelUrl = channelUrl ?: uploaderUrl ?: ""
     )
+
+    /** Kanal (Name, Adresse), dem eine Playlist gehört. */
+    suspend fun playlistOwner(url: String): Pair<String, String> = withContext(Dispatchers.IO) {
+        val i = PlaylistInfo.getInfo(yt, url)
+        (i.uploaderName ?: "") to (i.uploaderUrl ?: "")
+    }
+
+    private fun channelKey(u: String?): String = (u ?: "").trimEnd('/').substringAfterLast('/').lowercase()
+
+    /** Stammt die Folge vom gemerkten Kanal der Serie? Ohne gemerkten Kanal oder bei Kanal-Serien immer ja. */
+    fun fromTrustedChannel(ep: Episode, seriesId: String, channelUrl: String, channelName: String): Boolean {
+        if (isChannelUrl(seriesId) || channelUrl.isEmpty()) return true
+        if (ep.uploaderUrl.isNotEmpty()) return channelKey(ep.uploaderUrl) == channelKey(channelUrl)
+        return ep.uploaderName.isNotEmpty() && ep.uploaderName.equals(channelName, ignoreCase = true)
+    }
 
     class EpisodePage(val items: List<Episode>, val next: Page?)
 
@@ -101,7 +118,9 @@ object SeriesRepo {
         title = name ?: "",
         thumbnail = thumbnails.firstOrNull()?.url,
         durationSec = duration,
-        uploadedText = textualUploadDate
+        uploadedText = textualUploadDate,
+        uploaderName = uploaderName ?: "",
+        uploaderUrl = uploaderUrl ?: ""
     )
 
     /** Variantenname ohne Größenangabe, z. B. "720p · MP4" */
