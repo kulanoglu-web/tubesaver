@@ -57,14 +57,43 @@ object SeriesRepo {
 
     class EpisodePage(val items: List<Episode>, val next: Page?)
 
-    suspend fun episodes(playlistUrl: String): EpisodePage = withContext(Dispatchers.IO) {
-        val info = PlaylistInfo.getInfo(yt, playlistUrl)
-        EpisodePage(info.relatedItems.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, info.nextPage)
+    /** Eine Serie ist entweder eine Playlist (mit "list=") oder ein ganzer Kanal (Reiter "Videos"). */
+    fun isChannelUrl(url: String) = !url.contains("list=")
+
+    private val tabHandlers = java.util.concurrent.ConcurrentHashMap<String, org.schabi.newpipe.extractor.linkhandler.ListLinkHandler>()
+
+    suspend fun episodes(url: String): EpisodePage = withContext(Dispatchers.IO) {
+        if (isChannelUrl(url)) {
+            val ch = ChannelInfo.getInfo(yt, url)
+            val tab = ch.tabs.firstOrNull { ChannelTabs.VIDEOS in it.contentFilters }
+                ?: return@withContext EpisodePage(emptyList(), null)
+            tabHandlers[url] = tab
+            val info = ChannelTabInfo.getInfo(yt, tab)
+            EpisodePage(info.relatedItems.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, info.nextPage)
+        } else {
+            val info = PlaylistInfo.getInfo(yt, url)
+            EpisodePage(info.relatedItems.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, info.nextPage)
+        }
     }
 
-    suspend fun moreEpisodes(playlistUrl: String, page: Page): EpisodePage = withContext(Dispatchers.IO) {
-        val res = PlaylistInfo.getMoreItems(yt, playlistUrl, page)
-        EpisodePage(res.items.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, res.nextPage)
+    suspend fun moreEpisodes(url: String, page: Page): EpisodePage = withContext(Dispatchers.IO) {
+        if (isChannelUrl(url)) {
+            val h = tabHandlers[url] ?: error("Kanal nicht geladen")
+            val res = ChannelTabInfo.getMoreItems(yt, h, page)
+            EpisodePage(res.items.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, res.nextPage)
+        } else {
+            val res = PlaylistInfo.getMoreItems(yt, url, page)
+            EpisodePage(res.items.filterIsInstance<StreamInfoItem>().map { it.toEpisode() }, res.nextPage)
+        }
+    }
+
+    /** Videosuche: findet ganze Folgen direkt und über sie die Kanäle der Serien. */
+    class VideoHit(val ep: Episode, val channelName: String, val channelUrl: String?, val verified: Boolean)
+
+    suspend fun searchVideos(query: String): List<VideoHit> = withContext(Dispatchers.IO) {
+        val h = yt.searchQHFactory.fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), "")
+        SearchInfo.getInfo(yt, h).relatedItems.filterIsInstance<StreamInfoItem>()
+            .map { VideoHit(it.toEpisode(), it.uploaderName ?: "", it.uploaderUrl, it.isUploaderVerified) }
     }
 
     private fun StreamInfoItem.toEpisode() = Episode(

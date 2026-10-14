@@ -37,6 +37,9 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
 
     var query by mutableStateOf("")
     var channels by mutableStateOf<List<ChannelHit>>(emptyList())
+    var videos by mutableStateOf<List<SeriesRepo.VideoHit>>(emptyList())
+    var pendingUnverified by mutableStateOf<SeriesHit?>(null)
+    var channelSelf by mutableStateOf<SeriesHit?>(null)
     var playlists by mutableStateOf<List<SeriesHit>>(emptyList())
     var searched by mutableStateOf(false)
 
@@ -80,7 +83,18 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
                 val pl = async {
                     SeriesRepo.searchPlaylists(if (asBroadcaster) "$text dizi" else text)
                 }
-                channels = ch.await().filter { it.verified }
+                val vd = async {
+                    SeriesRepo.searchVideos(if (asBroadcaster) "$text dizi son bölüm" else text)
+                }
+                val vids = runCatching { vd.await() }.getOrDefault(emptyList())
+                // Nur ganze Folgen; Kanäle der Treffer kommen zur Kanalsuche dazu (Serien mit eigenem Kanal)
+                videos = vids.filter { it.ep.isFull() }.take(15)
+                val fromVideos = vids.filter { it.channelUrl != null && it.channelName.isNotEmpty() }
+                    .map { ChannelHit(it.channelUrl!!, it.channelName, null, it.verified) }
+                channels = (ch.await() + fromVideos)
+                    .distinctBy { it.url }
+                    .sortedByDescending { it.verified }
+                    .take(8)
                 playlists = runCatching { pl.await() }.getOrDefault(emptyList())
                 searched = true
             } catch (e: Throwable) {
@@ -93,13 +107,14 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openChannel(c: ChannelHit) {
         channelName = c.name
+        channelSelf = SeriesHit(c.url, c.name, c.thumbnail, c.name, c.verified, -1)
         channelSeries = emptyList()
         view = SView.CHANNEL
         loading = true
         error = null
         viewModelScope.launch {
             try {
-                channelSeries = SeriesRepo.channelSeries(c.url)
+                channelSeries = runCatching { SeriesRepo.channelSeries(c.url) }.getOrDefault(emptyList())
             } catch (e: Throwable) {
                 fail(e)
             } finally {
@@ -166,9 +181,10 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ Abonnieren
 
     /** Nimmt die Serie auf; alle jetzt vorhandenen Folgen gelten als bekannt, nur neue werden automatisch geladen. */
-    fun subscribe(hit: SeriesHit) {
-        if (!hit.verified) {
-            message = "Nicht verifizierter Kanal – nur offizielle Sender-Kanäle können hinzugefügt werden"
+    fun subscribe(hit: SeriesHit, confirmed: Boolean = false) {
+        // Nicht verifizierte Kanäle nur nach ausdrücklicher Bestätigung (Schutz vor Fälschungen)
+        if (!hit.verified && !confirmed) {
+            pendingUnverified = hit
             return
         }
         if (isSubscribed(hit.url)) return

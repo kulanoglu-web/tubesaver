@@ -84,6 +84,27 @@ fun SeriesScreen(vm: SeriesViewModel = viewModel()) {
             vm.message = null
         }
     }
+    vm.pendingUnverified?.let { h ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { vm.pendingUnverified = null },
+            title = { Text("Nicht verifizierter Kanal") },
+            text = {
+                Text(
+                    "„${h.channelName.ifEmpty { h.name }}“ hat keinen Verifizierungshaken von YouTube. " +
+                        "Prüfe, dass es der echte Kanal der Serie oder des Senders ist (Name, Logo, Abonnentenzahl), " +
+                        "sonst können es Fälschungen oder Fremd-Uploads sein. Trotzdem hinzufügen?"
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.pendingUnverified = null; vm.subscribe(h, true) }) {
+                    Text("Trotzdem hinzufügen")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.pendingUnverified = null }) { Text("Abbrechen") }
+            }
+        )
+    }
     when (vm.view) {
         SView.HOME -> HomeView(vm)
         SView.DISCOVER -> DiscoverView(vm)
@@ -127,6 +148,23 @@ private fun CardRow(onClick: () -> Unit, content: @Composable RowScope.() -> Uni
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { content() }
+    }
+}
+
+@Composable
+private fun OfficialBadgeNamed(name: String, official: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (official) Icons.Default.Verified else Icons.Default.Warning, null, Modifier.size(14.dp),
+            tint = if (official) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            name + if (official) "" else " (nicht verifiziert)",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (official) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            maxLines = 1, overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -246,12 +284,26 @@ private fun DiscoverView(vm: SeriesViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 vm.error?.let { e -> item { Text("Fehler: $e", color = MaterialTheme.colorScheme.error) } }
-                if (vm.searched && vm.channels.isEmpty() && vm.playlists.isEmpty() && vm.error == null) {
+                if (vm.searched && vm.channels.isEmpty() && vm.playlists.isEmpty() && vm.videos.isEmpty() && vm.error == null) {
                     item { Text("Nichts gefunden.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
                 if (vm.channels.isNotEmpty()) {
-                    item { Text("Offizielle Kanäle", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
-                    items(vm.channels.take(6), key = { "c" + it.url }) { c -> ChannelRow(c) { vm.openChannel(c) } }
+                    item { Text("Kanäle (Serie oder Sender)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
+                    items(vm.channels, key = { "c" + it.url }) { c -> ChannelRow(c) { vm.openChannel(c) } }
+                }
+                if (vm.videos.isNotEmpty()) {
+                    item { Text("Ganze Folgen", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
+                    items(vm.videos, key = { "v" + it.ep.url }) { v ->
+                        val ctx = LocalContext.current
+                        val jobs by DownloadHub.jobs.collectAsState()
+                        val job = jobs.lastOrNull { it.videoUrl == v.ep.url && it.state != JobState.FAILED && it.state != JobState.CANCELLED }
+                        EpisodeRow(
+                            v.ep, job, v.ep.url in vm.busy,
+                            onDownload = { vm.downloadEpisode(v.ep, "") },
+                            onPlay = { job?.let { openFile(ctx, it) } },
+                            channel = v.channelName, verified = v.verified
+                        )
+                    }
                 }
                 if (vm.playlists.isNotEmpty()) {
                     item { Text("Serien", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
@@ -311,8 +363,15 @@ private fun ChannelView(vm: SeriesViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 vm.error?.let { e -> item { Text("Fehler: $e", color = MaterialTheme.colorScheme.error) } }
-                if (vm.channelSeries.isEmpty() && vm.error == null) {
-                    item { Text("Dieser Kanal hat keine Serien-Playlists.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                vm.channelSelf?.let { self ->
+                    item {
+                        HitRow(self.copy(name = "Alle Folgen dieses Kanals"), vm.isSubscribed(self.url)) {
+                            vm.openSeries(self, SView.CHANNEL)
+                        }
+                    }
+                }
+                if (vm.channelSeries.isNotEmpty()) {
+                    item { Text("Playlists des Kanals", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
                 }
                 items(vm.channelSeries, key = { it.url }) { h ->
                     HitRow(h, vm.isSubscribed(h.url)) { vm.openSeries(h, SView.CHANNEL) }
@@ -339,10 +398,10 @@ private fun DetailView(vm: SeriesViewModel) {
             if (subscribed) {
                 FilledTonalButton(onClick = { vm.unsubscribe(hit.url) }) { Text("Abonniert – entfernen") }
             } else {
-                Button(onClick = { vm.subscribe(hit) }, enabled = hit.verified) {
+                Button(onClick = { vm.subscribe(hit) }) {
                     Icon(Icons.Default.Add, null)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (hit.verified) "Serie hinzufügen (neue Folgen automatisch)" else "Nur offizielle Kanäle möglich")
+                    Text(if (hit.verified) "Serie hinzufügen (neue Folgen automatisch)" else "Hinzufügen (nicht verifiziert)")
                 }
             }
         }
@@ -403,7 +462,9 @@ private fun EpisodeRow(
     job: de.cleartube.app.data.DownloadJob?,
     busy: Boolean,
     onDownload: () -> Unit,
-    onPlay: () -> Unit
+    onPlay: () -> Unit,
+    channel: String? = null,
+    verified: Boolean = true
 ) {
     val done = job?.state == JobState.DONE && job.resultUri != null
     CardRow(onClick = if (done) onPlay else onDownload) {
@@ -411,6 +472,7 @@ private fun EpisodeRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(ep.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            if (channel != null) OfficialBadgeNamed(channel, verified)
             val sub = listOfNotNull(formatDuration(ep.durationSec), ep.uploadedText).joinToString(" · ")
             if (sub.isNotEmpty()) {
                 Text(sub, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
