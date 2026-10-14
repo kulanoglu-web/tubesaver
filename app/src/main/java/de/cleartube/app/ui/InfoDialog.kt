@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Tippen auf die Download-Benachrichtigung öffnet die App",
         "Schnelleres Zusammenfügen, Anzeige \"Wird im Zielordner gespeichert\"",
         "Version 1.3: Fehler 403 beim Download behoben – Android-VR-Quelle zuerst, neue Adressen bei Fehlern, " +
             "Schonmodus, \"Erneut versuchen\" im Menü, genauere Fehlermeldung",

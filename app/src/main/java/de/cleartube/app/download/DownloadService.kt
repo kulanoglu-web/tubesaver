@@ -1,6 +1,8 @@
 package de.cleartube.app.download
 
 import android.app.Notification
+import android.app.PendingIntent
+import de.cleartube.app.MainActivity
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
@@ -201,11 +203,19 @@ class DownloadService : Service() {
         }
     }
 
+    /** Tippen auf die Benachrichtigung öffnet die App (Reiter bleibt wie zuletzt). */
+    private fun openAppIntent(): PendingIntent {
+        val i = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(this, 0, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     private fun notification(text: String, pct: Int, indeterminate: Boolean): Notification =
         NotificationCompat.Builder(this, App.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("ClearTube")
             .setContentText(text)
+            .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, pct, indeterminate)
