@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Schneller laden (eigene Verbindung je Segment, Bild und Ton gleichzeitig), Leiste im Player blendet wieder aus, Zeiten für Laden/Zusammenfügen/Speichern werden angezeigt",
         "Download-Fenster: Download-Taste jetzt oben, Fenster scrollbar (Fernbedienung)",
         "Serien merken ihren Kanal: neue Folgen werden nur vom gemerkten Kanal geladen, Fremd-Uploads in Playlists werden markiert und übergangen",
         "Player per Fingerwisch: nach rechts vor, nach links zurück; Doppeltippen links/rechts springt 10 s",

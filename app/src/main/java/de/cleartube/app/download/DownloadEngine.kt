@@ -70,7 +70,7 @@ object Mirrors {
  * dem nächsten alternativen Stream versucht.
  */
 object DownloadEngine {
-    private const val CONNECTIONS = 8
+    private const val CONNECTIONS = 16
     private const val SAFE_CONNECTIONS = 2
     private const val CHUNK = 4L * 1024 * 1024
     private const val MAX_ATTEMPTS = 6
@@ -103,8 +103,20 @@ object DownloadEngine {
         }
     }
 
+    /**
+     * Download-Client: nur HTTP/1.1. Mit HTTP/2 würden alle parallelen Anfragen über eine einzige
+     * Verbindung zum Server laufen und sich ihre Geschwindigkeit teilen; mit HTTP/1.1 bekommt jede
+     * Anfrage eine eigene Verbindung und die Leitung wird wirklich ausgelastet.
+     */
+    private val dlClient: OkHttpClient by lazy {
+        Http.client.newBuilder()
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .connectionPool(okhttp3.ConnectionPool(48, 2, TimeUnit.MINUTES))
+            .build()
+    }
+
     private val probeClient: OkHttpClient by lazy {
-        Http.client.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
+        dlClient.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
     }
 
     /** Verwaltet die Server einer Quelle; defekte Server werden übersprungen. */
@@ -180,7 +192,7 @@ object DownloadEngine {
         safe: Boolean
     ) = coroutineScope {
         // Haupt-Server muss antworten, sonst geht es mit der nächsten Quelle weiter
-        val main = withContext(Dispatchers.IO) { probe(Http.client, url) }
+        val main = withContext(Dispatchers.IO) { probe(dlClient, url) }
         val total = main.total
 
         // Alle weiteren Server parallel prüfen, nur gleich große Antworten zählen
@@ -239,13 +251,13 @@ object DownloadEngine {
             var written = 0L
             try {
                 val req = build(server, start, end, pool.mode)
-                Http.client.newCall(req).execute().use { r ->
+                dlClient.newCall(req).execute().use { r ->
                     // Ein Server, der den Bereich ignoriert (200), ist nur für das erste Segment brauchbar
                     val ok = r.code == 206 ||
                         (r.code == 200 && (start == 0L || pool.mode == Mode.PARAM))
                     if (!ok) throw IOException("HTTP ${r.code}")
                     val body = r.body ?: throw IOException("Leere Antwort")
-                    val buf = ByteArray(64 * 1024)
+                    val buf = ByteArray(256 * 1024)
                     val expected = end - start + 1
                     body.byteStream().use { input ->
                         raf.seek(start)

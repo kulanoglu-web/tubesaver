@@ -72,6 +72,7 @@ class PlayerActivity : ComponentActivity() {
     private var dur by mutableLongStateOf(0L)
     private var isPlaying by mutableStateOf(true)
     private var overlayUntil by mutableLongStateOf(0L)
+    private var overlayShown by mutableStateOf(true)
     private var engineLabel by mutableStateOf("")
     private var swipeMs by mutableStateOf<Long?>(null)
     private var dragging by mutableStateOf(false)
@@ -142,7 +143,13 @@ class PlayerActivity : ComponentActivity() {
                             delay(400)
                         }
                     }
-                    val visible = System.currentTimeMillis() < overlayUntil || !isPlaying || dragging
+                    // Leiste nach einigen Sekunden ohne Bedienung ausblenden
+                    LaunchedEffect(overlayUntil) {
+                        val wait = overlayUntil - System.currentTimeMillis()
+                        if (wait > 0) delay(wait)
+                        overlayShown = false
+                    }
+                    val visible = overlayShown || !isPlaying || dragging
                     if (visible) Overlay()
                     swipeMs?.let { d ->
                         val e = engine
@@ -212,8 +219,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showOverlay() {
-        overlayUntil = System.currentTimeMillis() + 4500
-        pos += 0 // Neuzeichnen anstoßen
+        overlayUntil = System.currentTimeMillis() + 4000
+        overlayShown = true
     }
 
     /** Position regelmäßig speichern (alle 3 s), mit force sofort. */

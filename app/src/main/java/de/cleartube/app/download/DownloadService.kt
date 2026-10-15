@@ -22,6 +22,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -87,12 +89,18 @@ class DownloadService : Service() {
             }
 
             val size = result.size
-            val outUri = result.uri ?: copyToTree(job, result.file!!, o)
+            var timing = result.timing
+            val outUri = result.uri ?: run {
+                val t0 = System.currentTimeMillis()
+                val u = copyToTree(job, result.file!!, o)
+                timing += (if (timing.isEmpty()) "" else " · ") + "Speichern ${(System.currentTimeMillis() - t0) / 1000} s"
+                u
+            }
             DownloadHub.update(job.id) {
                 it.copy(
                     state = JobState.DONE,
                     progress = 1f,
-                    message = null,
+                    message = timing.ifEmpty { null },
                     resultUri = outUri,
                     openMime = openMime(o),
                     finishedAt = System.currentTimeMillis(),
@@ -122,7 +130,7 @@ class DownloadService : Service() {
     }
 
     /** Ergebnis: entweder schon im Zielordner (uri) oder eine Datei im Cache, die noch kopiert wird. */
-    private class Built(val file: File?, val uri: Uri?, val size: Long)
+    private class Built(val file: File?, val uri: Uri?, val size: Long, val timing: String = "")
 
     private fun muxProgress(job: DownloadJob): (Float) -> Unit = { p ->
         DownloadHub.update(job.id) {
@@ -139,16 +147,29 @@ class DownloadService : Service() {
         val hasMux = o.kind == Kind.VIDEO && o.audioUrls.isNotEmpty()
         var result: File
 
+        val t0 = System.currentTimeMillis()
         if (hasMux) {
             val vFile = File(dir, "video.part")
             val aFile = File(dir, "audio.part")
-            // Video 0–76 %, Audio 76–95 %, Zusammenfügen/Kopieren bis 100 %
-            DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
-                report(job, 0.76f * d / t)
+            // Bild und Ton gleichzeitig laden (Ton ist klein und läuft nebenher mit)
+            val pv = java.util.concurrent.atomic.AtomicInteger(0)
+            val pa = java.util.concurrent.atomic.AtomicInteger(0)
+            fun total() = report(job, 0.95f * (0.9f * pv.get() + 0.1f * pa.get()) / 1000f)
+            coroutineScope {
+                val v = async {
+                    DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
+                        pv.set((1000L * d / t).toInt()); total()
+                    }
+                }
+                val au = async {
+                    DownloadEngine.downloadWithFallback(o.audioUrls, aFile, {}) { d, t ->
+                        pa.set((1000L * d / t).toInt()); total()
+                    }
+                }
+                v.await()
+                au.await()
             }
-            DownloadEngine.downloadWithFallback(o.audioUrls, aFile, info(job)) { d, t ->
-                report(job, 0.76f + 0.19f * d / t)
-            }
+            val tLoaded = System.currentTimeMillis()
             DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = "Wird zusammengefügt… 0 %") }
             // Schnellster Weg: direkt in den Zielordner schreiben, ohne die fertige Datei noch einmal zu kopieren
             muxDirect(job, o, vFile, aFile)?.let { uri ->
@@ -156,10 +177,16 @@ class DownloadService : Service() {
                     if (uri.scheme == "file") File(uri.path!!).length()
                     else DocumentFile.fromSingleUri(this, uri)?.length() ?: 0L
                 }.getOrDefault(0L)
-                return Built(null, uri, size)
+                val now = System.currentTimeMillis()
+                return Built(null, uri, size, "Laden ${(tLoaded - t0) / 1000} s · Zusammenfügen ${(now - tLoaded) / 1000} s")
             }
+            val tm = System.currentTimeMillis()
             result = File(dir, "out." + o.ext)
             Muxer.mux(vFile, aFile, result, o.webm, muxProgress(job))
+            return Built(
+                result, null, result.length(),
+                "Laden ${(tLoaded - t0) / 1000} s · Zusammenfügen ${(System.currentTimeMillis() - tm) / 1000} s"
+            )
         } else {
             val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
             result = File(dir, "out." + o.ext)

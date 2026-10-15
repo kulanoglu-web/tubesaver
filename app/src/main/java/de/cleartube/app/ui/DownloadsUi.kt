@@ -116,7 +116,7 @@ fun JobCard(j: DownloadJob) {
         JobState.MUXING -> j.message ?: "Wird zusammengefügt…"
         JobState.DONE -> {
             val size = if (j.fileSize > 0) formatSize(j.fileSize) + " · " else ""
-            size + (if (canOpen) (if (de.cleartube.app.data.Store.watched(j.id)) "gesehen · antippen zum Abspielen" else "antippen zum Abspielen") else "fertig")
+            size + (j.message?.let { "$it · " } ?: "") + (if (canOpen) (if (de.cleartube.app.data.Store.watched(j.id)) "gesehen · antippen zum Abspielen" else "antippen zum Abspielen") else "fertig")
         }
         JobState.FAILED -> "Fehler: ${j.message ?: "unbekannt"}"
         JobState.CANCELLED -> "Abgebrochen"
