@@ -115,6 +115,14 @@ fun SettingsScreen(vm: MainViewModel, onInfo: () -> Unit, onCheckCleanup: () -> 
             OutlinedButton(onClick = onCheckCleanup, modifier = Modifier.fillMaxWidth()) { Text("Jetzt prüfen") }
         }
 
+        SectionCard("Downloads") {
+            var par by remember { mutableStateOf(Store.parallel) }
+            Text("Gleichzeitige Downloads: $par", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = par.toFloat(), onValueChange = { par = it.toInt(); Store.parallel = par },
+                valueRange = 1f..4f, steps = 2
+            )
+        }
         SectionCard("Player") {
             var player by remember { mutableStateOf(Store.player) }
             Text(

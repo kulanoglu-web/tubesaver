@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -317,14 +319,14 @@ fun SearchScreen(vm: MainViewModel) {
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = vm.query,
-            onValueChange = { vm.query = it },
+            onValueChange = { vm.onQueryChange(it) },
             singleLine = true,
             shape = RoundedCornerShape(28.dp),
             placeholder = { Text("Suchen oder YouTube-Link einfügen") },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             trailingIcon = {
                 if (vm.query.isNotEmpty()) {
-                    IconButton(onClick = { vm.query = "" }) { Icon(Icons.Default.Clear, "Leeren") }
+                    IconButton(onClick = { vm.onQueryChange("") }) { Icon(Icons.Default.Clear, "Leeren") }
                 }
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -352,7 +354,24 @@ fun SearchScreen(vm: MainViewModel) {
             }
         }
 
-        if (vm.results.isEmpty() && !vm.loading) {
+        if (vm.suggestions.isNotEmpty()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                items(vm.suggestions) { sug ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { focus.clearFocus(); vm.searchFor(sug) }
+                            .padding(vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(14.dp))
+                        Text(sug, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(onClick = { vm.onQueryChange(sug + " ") }) {
+                            Icon(Icons.Default.NorthWest, "Übernehmen", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        } else if (vm.results.isEmpty() && !vm.loading) {
             EmptySearch(vm)
         } else {
             LazyColumn(
@@ -470,13 +489,16 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
     val videos = d.options.filter { it.kind == Kind.VIDEO }
     val audios = d.options.filter { it.kind == Kind.AUDIO }
     val shown = if (tab == 0) videos else audios
+    val chosen: Option? = selected?.takeIf { it in shown } ?: shown.firstOrNull()
 
     ModalBottomSheet(
         onDismissRequest = { vm.closeDetails() },
         containerColor = MaterialTheme.colorScheme.surface
     ) {
+        Column(Modifier.fillMaxWidth()) {
         Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 20.dp)
+            Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp).padding(bottom = 8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
@@ -497,23 +519,9 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
                     )
                 }
             }
-            Spacer(Modifier.padding(top = 10.dp))
-            Button(
-                onClick = { selected?.let { onDownload(it, keep) } },
-                enabled = selected != null && vm.treeUri != null,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Download, null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        selected == null -> "Qualität wählen"
-                        vm.treeUri == null -> "Speicherort wählen"
-                        else -> "Download starten"
-                    }
-                )
-            }
-            Spacer(Modifier.padding(top = 12.dp))
+            Spacer(Modifier.padding(top = 14.dp))
+            Text("1 · Qualität wählen", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.padding(top = 6.dp))
 
             TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
                 Tab(
@@ -535,7 +543,7 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
                         Modifier.fillMaxWidth().clickable { selected = o }.padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = selected == o, onClick = { selected = o })
+                        RadioButton(selected = chosen == o, onClick = { selected = o })
                         Column(Modifier.weight(1f)) {
                             Text(o.label)
                             if (i == 0) {
@@ -551,6 +559,8 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("2 · Speicherort", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.padding(top = 6.dp))
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -587,7 +597,32 @@ fun DetailsSheet(vm: MainViewModel, d: VideoDetails, onDownload: (Option, Boolea
                     }
                 }
             }
-
+        }
+        // Fester Download-Bereich: bleibt immer sichtbar und ist von der Auswahl oben getrennt
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            tonalElevation = 3.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                Text(
+                    chosen?.let { "Ausgewählt: ${it.label}" } ?: "Nichts ausgewählt",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.padding(top = 6.dp))
+                Button(
+                    onClick = { chosen?.let { onDownload(it, keep) } },
+                    enabled = chosen != null && vm.treeUri != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Download, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (vm.treeUri == null) "Erst Speicherort wählen" else "Download starten")
+                }
+            }
+        }
         }
     }
 }

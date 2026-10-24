@@ -28,6 +28,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var recents by mutableStateOf(Store.recents())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    var suggestions by mutableStateOf<List<String>>(emptyList())
     var details by mutableStateOf<VideoDetails?>(null)
     var detailsLoading by mutableStateOf(false)
 
@@ -60,7 +61,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var loadingMore = false
     private var detailsJob: Job? = null
 
+    private var suggestJob: Job? = null
+
+    /** Eingabe geändert: nach kurzer Pause Vorschläge holen (Zuletzt-gesucht-Treffer sofort). */
+    fun onQueryChange(text: String) {
+        query = text
+        suggestJob?.cancel()
+        val q = text.trim()
+        if (q.isEmpty() || YouTubeRepo.isYoutubeUrl(q)) {
+            suggestions = emptyList()
+            return
+        }
+        val local = recents.filter { it.contains(q, ignoreCase = true) && !it.equals(q, true) }.take(3)
+        suggestions = local
+        suggestJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(250)
+            val remote = YouTubeRepo.suggest(q)
+            suggestions = (local + remote).distinct().take(8)
+        }
+    }
+
     fun submit() {
+        suggestJob?.cancel()
+        suggestions = emptyList()
         val q = query.trim()
         if (q.isEmpty()) return
         if (YouTubeRepo.isYoutubeUrl(q)) {

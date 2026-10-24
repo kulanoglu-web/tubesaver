@@ -17,6 +17,7 @@ import de.cleartube.app.data.DownloadJob
 import de.cleartube.app.data.JobState
 import de.cleartube.app.data.Kind
 import de.cleartube.app.data.Option
+import de.cleartube.app.data.Store
 import de.cleartube.app.data.YouTubeRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -58,12 +59,22 @@ class DownloadService : Service() {
     }
 
     private suspend fun runQueue() {
+        val active = java.util.concurrent.ConcurrentHashMap<Long, Job>()
         while (true) {
-            val job = DownloadHub.nextQueued() ?: break
-            val task = scope.launch { process(job) }
-            DownloadHub.running[job.id] = task
-            task.join()
-            DownloadHub.running.remove(job.id)
+            // Freie Plätze mit wartenden Downloads füllen (Zustand sofort auf RUNNING, damit nichts doppelt startet)
+            while (active.size < Store.parallel) {
+                val job = DownloadHub.nextQueued() ?: break
+                DownloadHub.update(job.id) { it.copy(state = JobState.RUNNING, progress = 0f, message = null) }
+                val task = scope.launch { process(job) }
+                DownloadHub.running[job.id] = task
+                active[job.id] = task
+                task.invokeOnCompletion {
+                    DownloadHub.running.remove(job.id)
+                    active.remove(job.id)
+                }
+            }
+            if (active.isEmpty()) break
+            kotlinx.coroutines.delay(400)
         }
     }
 
@@ -318,8 +329,11 @@ class DownloadService : Service() {
         val now = System.currentTimeMillis()
         if (now - lastNotify > 1000) {
             lastNotify = now
+            val run = DownloadHub.jobs.value.filter { it.state == JobState.RUNNING || it.state == JobState.MUXING }
+            val title = if (run.size > 1) "${run.size} Downloads laufen" else job.title
+            val pct = if (run.size > 1) (run.map { it.progress }.average() * 100).toInt() else (progress * 100).toInt()
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIF_ID, notification(job.title, (progress * 100).toInt(), false))
+                .notify(NOTIF_ID, notification(title, pct, false))
         }
     }
 

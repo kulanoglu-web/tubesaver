@@ -45,7 +45,9 @@ object SeriesSync {
                     // Vorschauen und Ausschnitte (kürzer als die Mindestlänge) werden nicht automatisch geladen
                     // Nur ganze Folgen vom gemerkten Kanal; Fremd-Uploads in Playlists werden nie geladen
                     val trusted = fresh.filter { SeriesRepo.fromTrustedChannel(it, s.id, s.channelUrl, s.channelName) }
-                    val full = trusted.filter { it.isFull() }
+                    // Zusätzlich nach Upload-Datum: nichts automatisch laden, was älter als die Aufbewahrungszeit ist
+                    // (alte Videos im Kanal/Playlist sind Neu-Uploads oder Fälschungen, nicht die aktuelle Folge)
+                    val full = trusted.filter { it.isFull() && !it.olderThanDays(Store.seriesKeepDays) }
                     handled += fresh.filterNot { it in full }.map { it.url }
                     for (ep in full.take(MAX_PER_SERIES)) {
                         val ok = runCatching {

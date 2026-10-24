@@ -97,7 +97,8 @@ class SeriesViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val vids = runCatching { vd.await() }.getOrDefault(emptyList())
                 // Nur ganze Folgen; Kanäle der Treffer kommen zur Kanalsuche dazu (Serien mit eigenem Kanal)
-                videos = vids.filter { it.ep.isFull() }.take(15)
+                // Nicht verifizierte Kanäle mit alten Uploads (> 1 Jahr) sind meist Neu-Uploads/Fälschungen
+                videos = vids.filter { it.ep.isFull() && (it.verified || !it.ep.olderThanDays(365)) }.take(15)
                 val fromVideos = vids.filter { it.channelUrl != null && it.channelName.isNotEmpty() }
                     .map { ChannelHit(it.channelUrl!!, it.channelName, null, it.verified) }
                 channels = (ch.await() + fromVideos)

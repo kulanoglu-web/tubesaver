@@ -88,8 +88,14 @@ data class Episode(
     val durationSec: Long,
     val uploadedText: String?,
     val uploaderName: String = "",
-    val uploaderUrl: String = ""
+    val uploaderUrl: String = "",
+    /** Upload-Zeitpunkt in ms seit 1970; 0 = unbekannt */
+    val uploadedAt: Long = 0L
 ) {
+    /** Älter als X Tage (unbekanntes Datum zählt nicht als alt). Alte Uploads sind oft Fälschungen/Neu-Uploads. */
+    fun olderThanDays(days: Int): Boolean =
+        uploadedAt > 0 && System.currentTimeMillis() - uploadedAt > days * 86_400_000L
+
     /** Ganze Folge: mindestens die eingestellte Länge; unbekannte Dauer (Livestream) zählt nicht. */
     fun isFull(): Boolean = durationSec >= Store.seriesMinMinutes * 60L
 }

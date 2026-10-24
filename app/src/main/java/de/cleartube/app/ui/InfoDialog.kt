@@ -20,6 +20,11 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Mehrere Downloads laufen gleichzeitig (einstellbar 1–4 unter Einstellungen)",
+        "Suchvorschläge beim Tippen (YouTube + zuletzt gesucht)",
+        "Fake-Schutz nach Upload-Datum: Auto-Download nur für Folgen jüngeren Datums, alte Neu-Uploads unverifizierter Kanäle fliegen aus der Serien-Suche",
+        "Download-Fenster: 1 Qualität wählen, 2 Speicherort, fester Download-Bereich unten (beste Qualität vorgewählt)",
+        "Neue, modernere Farben (Indigo/Koralle, hell und dunkel)",
         "Schneller laden (eigene Verbindung je Segment, Bild und Ton gleichzeitig), Leiste im Player blendet wieder aus, Zeiten für Laden/Zusammenfügen/Speichern werden angezeigt",
         "Download-Fenster: Download-Taste jetzt oben, Fenster scrollbar (Fernbedienung)",
         "Serien merken ihren Kanal: neue Folgen werden nur vom gemerkten Kanal geladen, Fremd-Uploads in Playlists werden markiert und übergangen",

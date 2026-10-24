@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "1.4.$buildNumber"
+        versionName = "1.5.$buildNumber"
         // libVLC bringt native Bibliotheken mit: nur die ARM-Geräte (Handys, Fernseher) einpacken
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }

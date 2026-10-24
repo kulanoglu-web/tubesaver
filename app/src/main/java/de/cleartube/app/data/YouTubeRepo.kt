@@ -39,6 +39,11 @@ object YouTubeRepo {
         items to SearchSession(handler, info.nextPage)
     }
 
+    /** Suchvorschläge von YouTube passend zur Eingabe. */
+    suspend fun suggest(query: String): List<String> = withContext(Dispatchers.IO) {
+        runCatching { yt.suggestionExtractor.suggestionList(query).take(8) }.getOrDefault(emptyList())
+    }
+
     suspend fun more(session: SearchSession): List<VideoItem> = withContext(Dispatchers.IO) {
         val page = session.next ?: return@withContext emptyList()
         val res = SearchInfo.getMoreItems(yt, session.handler, page)

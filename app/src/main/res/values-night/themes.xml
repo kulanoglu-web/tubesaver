@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ClearTube" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#141111</item>
+        <item name="android:windowBackground">#0F0F17</item>
     </style>
 </resources>

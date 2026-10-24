@@ -120,7 +120,8 @@ object SeriesRepo {
         durationSec = duration,
         uploadedText = textualUploadDate,
         uploaderName = uploaderName ?: "",
-        uploaderUrl = uploaderUrl ?: ""
+        uploaderUrl = uploaderUrl ?: "",
+        uploadedAt = runCatching { uploadDate?.offsetDateTime()?.toInstant()?.toEpochMilli() }.getOrNull() ?: 0L
     )
 
     /** Variantenname ohne Größenangabe, z. B. "720p · MP4" */

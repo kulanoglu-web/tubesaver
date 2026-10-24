@@ -41,6 +41,11 @@ object Store {
         get() = prefs.getString("player", "vlc") ?: "vlc"
         set(v) = prefs.edit().putString("player", v).apply()
 
+    /** Wie viele Downloads gleichzeitig laufen (1–4) */
+    var parallel: Int
+        get() = prefs.getInt("parallel", 3).coerceIn(1, 4)
+        set(v) = prefs.edit().putInt("parallel", v.coerceIn(1, 4)).apply()
+
     var seriesAutoDelete: Boolean
         get() = prefs.getBoolean("s_del", true)
         set(v) = prefs.edit().putBoolean("s_del", v).apply()
