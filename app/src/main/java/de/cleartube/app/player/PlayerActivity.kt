@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -253,11 +254,20 @@ class PlayerActivity : ComponentActivity() {
         val frac = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
         val shownPos = if (dragging) (dragFrac * dur).toLong() else pos
         Box(Modifier.fillMaxSize()) {
+            // Zurück-Taste oben links: Player schließen, zurück zur App
+            Row(
+                Modifier.align(Alignment.TopStart).fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { saveProgress(true); finish() }) {
+                    Icon(Icons.Default.ArrowBack, "Zurück", tint = Color.White, modifier = Modifier.size(30.dp))
+                }
+                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.padding(start = 4.dp))
+            }
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000)).padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Slider(
                     value = if (dragging) dragFrac else frac,
                     onValueChange = {
