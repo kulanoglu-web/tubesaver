@@ -112,7 +112,7 @@ fun JobCard(j: DownloadJob) {
     val status = when (j.state) {
         JobState.QUEUED -> "Wartet…"
         JobState.RUNNING ->
-            "Lädt… ${(j.progress * 100).toInt()} %" + (j.message?.let { " · $it parallel" } ?: "")
+            "Lädt… ${(j.progress * 100).toInt()} %" + (j.message?.let { " · $it" } ?: "")
         JobState.MUXING -> j.message ?: "Wird zusammengefügt…"
         JobState.DONE -> {
             val size = if (j.fileSize > 0) formatSize(j.fileSize) + " · " else ""

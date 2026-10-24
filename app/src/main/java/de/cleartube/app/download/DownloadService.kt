@@ -169,8 +169,9 @@ class DownloadService : Service() {
             fun total() = report(job, 0.95f * (0.9f * pv.get() + 0.1f * pa.get()) / 1000f)
             coroutineScope {
                 val v = async {
-                    DownloadEngine.downloadWithFallback(o.videoUrls, vFile, info(job)) { d, t ->
-                        pv.set((1000L * d / t).toInt()); total()
+                    val meter = SpeedMeter(job)
+                    DownloadEngine.downloadWithFallback(o.videoUrls, vFile, meter::base) { d, t ->
+                        pv.set((1000L * d / t).toInt()); total(); meter.tick(d)
                     }
                 }
                 val au = async {
@@ -193,8 +194,9 @@ class DownloadService : Service() {
         } else {
             val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
             result = File(dir, "out." + o.ext)
-            DownloadEngine.downloadWithFallback(urls, result, info(job)) { d, t ->
-                report(job, 0.95f * d / t)
+            val meter = SpeedMeter(job)
+            DownloadEngine.downloadWithFallback(urls, result, meter::base) { d, t ->
+                report(job, 0.95f * d / t); meter.tick(d)
             }
             // Reine Audiodatei: zu sauberer M4A umpacken, bei Problemen bleibt das Original
             if (o.kind == Kind.AUDIO && o.ext == "m4a") {
@@ -335,6 +337,25 @@ class DownloadService : Service() {
     /** Zeigt in der Liste an, über wie viele YouTube-Server gerade parallel geladen wird. */
     private fun info(job: DownloadJob): (String) -> Unit = { text ->
         DownloadHub.update(job.id) { it.copy(message = text) }
+    }
+
+    /** Zeigt Verbindungen/Server und die aktuelle Geschwindigkeit (MB/s) auf der Karte an. */
+    private inner class SpeedMeter(val job: DownloadJob) {
+        private var base = ""
+        private var t = System.currentTimeMillis()
+        private var b = 0L
+        private var speed = ""
+        fun base(text: String) { base = text; push() }
+        fun tick(done: Long) {
+            val now = System.currentTimeMillis()
+            if (now - t >= 1000) {
+                val mbs = (done - b) * 1000.0 / (now - t) / 1048576.0
+                speed = " · %.1f MB/s".format(mbs)
+                t = now; b = done
+                push()
+            }
+        }
+        private fun push() = DownloadHub.update(job.id) { it.copy(message = base + speed) }
     }
 
     private fun report(job: DownloadJob, p: Float) {

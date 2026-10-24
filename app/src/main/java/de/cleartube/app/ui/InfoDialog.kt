@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Download-Karte zeigt Verbindungen, Server und Geschwindigkeit (MB/s) live",
         "Zusammenfügen zuerst im schnellen Zwischenspeicher, dann großer Kopiervorgang; Zusammenfügen/Speichern blockiert keinen neuen Download mehr",
         "Eigener Thread-Pool für Downloads (parallele Downloads bremsen sich nicht mehr aus); USB-Suche über /storage mit Diagnose",
         "Mehrere Downloads laufen gleichzeitig (einstellbar 1–4 unter Einstellungen)",
