@@ -213,11 +213,11 @@ object DownloadEngine {
 
         val pool = Pool(listOf(url) + extra, main.mode)
         val servers = pool.urls.map { Mirrors.hostOf(it) }.distinct().size
-        onInfo(if (servers == 1) "1 Server" else "$servers Server")
-
         RandomAccessFile(dest, "rw").use { it.setLength(total) }
 
         val count = ((total + CHUNK - 1) / CHUNK).toInt()
+        val conns = min(if (safe) SAFE_CONNECTIONS else CONNECTIONS, count)
+        onInfo("$conns Verbindungen · " + (if (servers == 1) "1 Server" else "$servers Server"))
         val next = AtomicInteger(0)
         val done = AtomicLong(0)
         onProgress(0, total)
