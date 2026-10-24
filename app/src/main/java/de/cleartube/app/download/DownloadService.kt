@@ -32,7 +32,7 @@ import java.io.File
 
 class DownloadService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + NetIO)
     private var worker: Job? = null
     private var lastNotify = 0L
 
@@ -62,7 +62,8 @@ class DownloadService : Service() {
         val active = java.util.concurrent.ConcurrentHashMap<Long, Job>()
         while (true) {
             // Freie Plätze mit wartenden Downloads füllen (Zustand sofort auf RUNNING, damit nichts doppelt startet)
-            while (active.size < Store.parallel) {
+            // Nur ladende Downloads belegen einen Platz; Zusammenfügen/Speichern läuft nebenher weiter
+            while (active.keys.count { id -> DownloadHub.jobs.value.any { it.id == id && it.state == JobState.RUNNING } } < Store.parallel) {
                 val job = DownloadHub.nextQueued() ?: break
                 DownloadHub.update(job.id) { it.copy(state = JobState.RUNNING, progress = 0f, message = null) }
                 val task = scope.launch { process(job) }
@@ -182,22 +183,13 @@ class DownloadService : Service() {
             }
             val tLoaded = System.currentTimeMillis()
             DownloadHub.update(job.id) { it.copy(state = JobState.MUXING, progress = 0.95f, message = "Wird zusammengefügt… 0 %") }
-            // Schnellster Weg: direkt in den Zielordner schreiben, ohne die fertige Datei noch einmal zu kopieren
-            muxDirect(job, o, vFile, aFile)?.let { uri ->
-                val size = runCatching {
-                    if (uri.scheme == "file") File(uri.path!!).length()
-                    else DocumentFile.fromSingleUri(this, uri)?.length() ?: 0L
-                }.getOrDefault(0L)
-                val now = System.currentTimeMillis()
-                return Built(null, uri, size, "Laden ${(tLoaded - t0) / 1000} s · Zusammenfügen ${(now - tLoaded) / 1000} s")
-            }
             val tm = System.currentTimeMillis()
             result = File(dir, "out." + o.ext)
             Muxer.mux(vFile, aFile, result, o.webm, muxProgress(job))
             return Built(
                 result, null, result.length(),
                 "Laden ${(tLoaded - t0) / 1000} s · Zusammenfügen ${(System.currentTimeMillis() - tm) / 1000} s"
-            )
+            ).also { vFile.delete(); aFile.delete() }
         } else {
             val urls = if (o.kind == Kind.VIDEO) o.videoUrls else o.audioUrls
             result = File(dir, "out." + o.ext)
@@ -273,7 +265,29 @@ class DownloadService : Service() {
             var target = File(dir, sanitize(job.title) + "." + o.ext)
             var n = 1
             while (target.exists()) target = File(dir, sanitize(job.title) + " (${n++})." + o.ext)
-            file.copyTo(target, overwrite = false)
+            val total = file.length().coerceAtLeast(1)
+            var copied = 0L
+            var last = 0L
+            file.inputStream().use { input ->
+                target.outputStream().use { out ->
+                    val buf = ByteArray(4 * 1024 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        copied += n
+                        val now = System.currentTimeMillis()
+                        if (now - last > 700) {
+                            last = now
+                            val p = copied.toFloat() / total
+                            DownloadHub.update(job.id) {
+                                it.copy(state = JobState.MUXING, progress = 0.97f + 0.03f * p,
+                                    message = "Wird gespeichert… ${(p * 100).toInt()} %")
+                            }
+                        }
+                    }
+                }
+            }
             return Uri.fromFile(target)
         }
         val root = DocumentFile.fromTreeUri(this, job.tree)
@@ -292,7 +306,7 @@ class DownloadService : Service() {
         var last = 0L
         contentResolver.openOutputStream(doc.uri)?.use { out ->
             file.inputStream().use { input ->
-                val buf = ByteArray(1024 * 1024)
+                val buf = ByteArray(4 * 1024 * 1024)
                 while (true) {
                     val n = input.read(buf)
                     if (n < 0) break

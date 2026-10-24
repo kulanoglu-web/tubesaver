@@ -4,7 +4,7 @@ import de.cleartube.app.data.InnerTube
 import de.cleartube.app.net.Http
 import de.cleartube.app.net.USER_AGENT
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -69,6 +69,10 @@ object Mirrors {
  * Quelle fehl, wird zuerst im Schonmodus (wenige Verbindungen, nur Originalserver) und dann mit
  * dem nächsten alternativen Stream versucht.
  */
+/** Eigener Thread-Pool: mehrere parallele Downloads mit je 16+ Verbindungen sollen sich nicht gegenseitig aufhalten. */
+internal val NetIO: kotlinx.coroutines.CoroutineDispatcher =
+    java.util.concurrent.Executors.newCachedThreadPool().asCoroutineDispatcher()
+
 object DownloadEngine {
     private const val CONNECTIONS = 16
     private const val SAFE_CONNECTIONS = 2
@@ -192,7 +196,7 @@ object DownloadEngine {
         safe: Boolean
     ) = coroutineScope {
         // Haupt-Server muss antworten, sonst geht es mit der nächsten Quelle weiter
-        val main = withContext(Dispatchers.IO) { probe(dlClient, url) }
+        val main = withContext(NetIO) { probe(dlClient, url) }
         val total = main.total
 
         // Alle weiteren Server parallel prüfen, nur gleich große Antworten zählen
@@ -201,7 +205,7 @@ object DownloadEngine {
                 .distinct().filter { it != url }.take(12)
         }
         val extra = candidates.map { m ->
-            async(Dispatchers.IO) {
+            async(NetIO) {
                 runCatching { probe(probeClient, m, listOf(main.mode)) }.getOrNull()
                     ?.takeIf { it.total == total }?.let { m }
             }
@@ -220,7 +224,7 @@ object DownloadEngine {
 
         val connections = if (safe) SAFE_CONNECTIONS else CONNECTIONS
         (0 until min(connections, count)).map { worker ->
-            async(Dispatchers.IO) {
+            async(NetIO) {
                 RandomAccessFile(dest, "rw").use { raf ->
                     while (true) {
                         ensureActive()

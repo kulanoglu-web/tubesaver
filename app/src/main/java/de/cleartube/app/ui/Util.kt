@@ -86,6 +86,21 @@ fun storageInfo(ctx: Context): String = runCatching {
     }
 }.getOrDefault("")
 
+/** Fehlersuche: was /storage enthält und ob dort geschrieben werden darf. */
+fun storageDiagnostics(ctx: Context): String = runCatching {
+    val sb = StringBuilder()
+    val root = java.io.File("/storage")
+    val list = root.list()
+    sb.append("/storage: ").append(list?.joinToString(", ") ?: "nicht lesbar").append('\n')
+    list?.filter { it != "emulated" && it != "self" }?.forEach { n ->
+        val d = java.io.File(root, "$n/Android/data/${ctx.packageName}/files/Movies")
+        val made = runCatching { d.mkdirs() }.getOrDefault(false)
+        sb.append(n).append(": anlegen=").append(made || d.isDirectory).append(", schreibbar=").append(d.canWrite()).append('\n')
+    }
+    ctx.getExternalFilesDirs(null).forEachIndexed { i, f -> sb.append("ExtDir[$i]=").append(f?.absolutePath ?: "null").append('\n') }
+    sb.toString()
+}.getOrDefault("")
+
 /**
  * Ziele ohne Ordner-Auswahl: der App-Ordner auf dem internen Speicher und auf jedem eingehängten
  * externen Speicher (USB-Festplatte, USB-Stick, SD-Karte). Brauchen keine Berechtigung.
@@ -109,6 +124,14 @@ fun appFolders(ctx: Context): List<Pair<String, Uri>> {
                 val d = java.io.File(root, "Android/data/${ctx.packageName}/files/Movies")
                 found.putIfAbsent(d.absolutePath, d)
             }
+        }
+    }
+    // Dritter Weg: /storage direkt durchsehen (USB-Festplatten erscheinen dort als /storage/XXXX-XXXX)
+    runCatching {
+        java.io.File("/storage").listFiles()?.forEach { vol ->
+            if (vol.name == "emulated" || vol.name == "self" || !vol.isDirectory) return@forEach
+            val d = java.io.File(vol, "Android/data/${ctx.packageName}/files/Movies")
+            found.putIfAbsent(d.absolutePath, d)
         }
     }
     val internalRoot = android.os.Environment.getExternalStorageDirectory().absolutePath
@@ -157,7 +180,7 @@ fun rememberFolderPicker(vm: MainViewModel): () -> Unit {
                     if (options.size < 2) {
                         Text(
                             "Keine externe Festplatte gefunden. Laut System sind diese Speicher vorhanden:\n" +
-                                storageInfo(ctx).ifEmpty { "(keine Angabe)" } +
+                                storageInfo(ctx).ifEmpty { "(keine Angabe)" } + "\n" + storageDiagnostics(ctx) +
                                 "\nTipp: Die Festplatte muss eingehängt sein; manche Fernseher binden sie nur nach " +
                                 "Formatieren als Gerätespeicher ein.",
                             style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
