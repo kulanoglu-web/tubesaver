@@ -20,6 +20,7 @@ object AppInfo {
             "Verbindungen und, soweit möglich, von mehreren YouTube-Servern gleichzeitig."
 
     val CHANGES = listOf(
+        "Dunkelmodus: Suchvorschläge und andere Texte waren schwarz auf dunkel, jetzt hell lesbar",
         "Player: Zurück-Taste oben links (schließt den Player)",
         "Download-Karte zeigt Verbindungen, Server und Geschwindigkeit (MB/s) live",
         "Zusammenfügen zuerst im schnellen Zwischenspeicher, dann großer Kopiervorgang; Zusammenfügen/Speichern blockiert keinen neuen Download mehr",

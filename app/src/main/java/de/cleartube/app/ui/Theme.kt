@@ -1,6 +1,7 @@
 package de.cleartube.app.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -58,7 +59,14 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun ClearTubeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
-        content = content
-    )
+        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors
+    ) {
+        // Surface setzt die Standard-Textfarbe (sonst ist Text im Dunkelmodus schwarz auf dunkel)
+        androidx.compose.material3.Surface(
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            content = content
+        )
+    }
 }
